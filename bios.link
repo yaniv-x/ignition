@@ -1,0 +1,14 @@
+name bios.bin
+format dos com 
+file entry.o
+file bios.o
+
+order
+    clname ENTRY
+    clname CODE
+    clname DATA
+
+disable 1023
+option nodefaultlibs
+
+

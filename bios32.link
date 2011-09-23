@@ -1,0 +1,7 @@
+name bios32.bin
+format raw bin
+file entry32.o
+file bios32.o
+option nodefaultlibs,offset=896k
+disable 1023
+
