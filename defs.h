@@ -29,13 +29,23 @@
 
 #define IO_POST_CODE 0x80
 #define IO_PORT_A20 0x92
+#define IO_PORT_PCI_ADDRESS 0xcf8
+#define IO_PORT_PCI_DATA 0xcfc
 
 #define POST_CODE_START16   1
 #define POST_CODE_INIT16    2
 #define POST_CODE_START32   3
 #define POST_CODE_INIT32    4
+#define POST_CODE_DETECT_PLATFORM_FAILED  5
+#define POST_CODE_PLATFORM_OK 6
+#define POST_CODE_BAR_TYPE_FAILED 7
+#define POST_CODE_BAR_SIZE_FAILED 8
+#define POST_CODE_LOCKED 9
 
 #define NULL 0
+
+#define TRUE 1
+#define FALSE 0
 
 #define CR0_PE (1 << 0)
 
@@ -50,6 +60,7 @@
 #define DATA_SEGMENT_SELECTOR (2 << 3)
 
 #define PROTECTED_START_ADDRESS ((1024 - 128) * 1024)
+#define PROTECTED_STACK_BASE (1024 * 256)
 
 #endif
 

@@ -35,7 +35,7 @@ jump.bin : jump.nasm
 	nasm -f bin -o $@ $<
 
 bios.o : bios.c  types.h defs.h common.c
-	$(WCC) -q -0 -ecc -zls -ms  -zc -s $<
+	$(WCC) -q -6 -ecc -zls -ms  -zc -s $<
 
 clean :
 	rm -f *.o *.bin defs.inc

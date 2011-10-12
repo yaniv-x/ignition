@@ -33,6 +33,42 @@ static inline void outb(uint16_t port, uint8_t val)
     }
 }
 
+static inline void outw(uint16_t port, uint16_t val)
+{
+    _asm {
+        mov dx, port
+        mov ax, val
+        out dx, ax
+    }
+}
+
+
+static inline uint8_t inb(uint16_t port)
+{
+    uint8_t val;
+
+    _asm {
+        mov dx, port
+        in al, dx
+        mov val, al
+    }
+
+    return val;
+}
+
+static inline uint16_t inw(uint16_t port)
+{
+    uint16_t val;
+
+    _asm {
+        mov dx, port
+        in ax, dx
+        mov val, ax
+    }
+
+    return val;
+}
+
 
 static inline void post(uint8_t code)
 {

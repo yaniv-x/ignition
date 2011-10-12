@@ -43,10 +43,17 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov esp, 256 * 1024
+    mov esp, PROTECTED_STACK_BASE
 
     call _init
 
+.infloop:
+    hlt
+    jmp .infloop
+
+global _halt
+_halt:
+    cli
 .infloop:
     hlt
     jmp .infloop
