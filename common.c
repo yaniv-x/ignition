@@ -72,12 +72,41 @@ static inline uint16_t inw(uint16_t port)
 
 static inline void post(uint8_t code)
 {
-    outb(IO_POST_CODE, code);
+    outb(IO_PORT_POST_CODE, code);
 }
 
 
 static inline void restart()
 {
-    outb(IO_PORT_A20, 1);
+    outb(IO_PORT_SYSCTRL, 1 << SYSCTRL_RESET_BIT);
+}
+
+
+
+static int find_lsb_32(uint32_t val)
+{
+    int i;
+
+    for (i = 0; i < 32; i++) {
+        if (val & (1 << i)) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+
+static int find_lsb_64(uint64_t val)
+{
+    int i;
+
+    for (i = 0; i < 64; i++) {
+        if (val & (1ULL << i)) {
+            return i;
+        }
+    }
+
+    return -1;
 }
 

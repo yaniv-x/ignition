@@ -32,6 +32,9 @@
 
 #define ASSERT(x) if (!(x)) { halt();}
 
+#define ALIGN(a, b) (((a) + ((b) - 1)) & ~((b) - 1))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 void halt(void);
 
@@ -80,17 +83,36 @@ enum {
 
     PCI_COMMAND_ENABLE_IO = (1 << 0),
     PCI_COMMAND_ENABLE_MEM = (1 << 1),
+    PCI_COMMAND_BUS_MASTER = (1 << 2),
     PCI_COMMAND_DISABLE_INTERRUPT = (1 << 10),
 
     PCI_BAR_IO_MASK = (1 << 0),
+    PCI_BAR_IO_ADDRESS_MASK = ~0x3,
+    PCI_BAR_MEM_ADDRESS_MASK = ~0xf,
 
     PCI_BASE_IO_ADDRESS = 0xc000,
+    PCI_NUM_BARS = 6,
+
+    PCI_MEMTYPE_32 = 0,
+    PCI_MEMTYPE_64 = 2,
+
+    PCI_IO_MIN_SIZE = 4,
+    PCI_IO_MAX_SIZE = 256,
+
+    PCI_MEM_MIN_SIZE = 16,
 };
 
+
+#define PCI_CLASS_MASS_STORAGE 0x01
+#define PCI_MASS_STORAGE_SUBCLASS_IDE 0x01
+#define PCI_CLASS_DISPLAY 0x03
+#define PCI_DISPLAY_SUBCLASS_VGA 0x00
+#define PCI_VGA_PROGIF_VGACOMPAT 0x00
 
 #define NOX_PCI_VENDOR_ID 0x1aaa
 #define NOX_PCI_DEV_ID_HOST_BRIDGE 0x0001
 #define NOX_PCI_DEV_HOST_BRIDGE_REV 1
+#define NOX_ADDRESS_LINES 52
 
 enum {
     PLATFORM_IO_LOCK = 0x00,
@@ -107,6 +129,60 @@ enum {
     PLATFORM_REG_BELOW_4G_USED_PAGES,
     PLATFORM_REG_ABOVE_4G_PAGES,
 };
+
+
+#define FLAGS_IDE_RES_WAS_CLAIMED (1 << 0)
+#define FLAGS_VGA_RES_WAS_CLAIMED (1 << 1)
+
+
+#define DUMB_ALLOC_ALIGNMENT 4
+#define DUMB_ALLOC_START 0x00060000
+#define DUMB_ALLOC_SIZE (64 * 1024)
+
+
+typedef struct PCIBarResouce {
+    uint bus;
+    uint device;
+    uint bar;
+    uint64_t size;
+    uint mapped;
+    struct PCIBarResouce* next;
+} PCIBarResouce;
+
+
+typedef struct PCIDevDescriptor {
+    uint32_t bus;
+    uint32_t device;
+    struct PCIDevDescriptor* next;
+} PCIDevDescriptor;
+
+
+typedef struct PCIDeviceType {
+    uint8_t class;
+    uint8_t sub_class;
+    uint8_t pro_if;
+} PCIDeviceType;
+
+
+typedef struct Globals {
+    uint32_t below_1m_used_pages;
+    uint32_t above_1m_pages;
+    uint32_t below_4g_pages;
+    uint32_t below_4g_used_pages;
+    uint32_t above_4g_pages;
+    PCIDevDescriptor* activation_list;
+    PCIBarResouce* io_bars;
+    PCIBarResouce* mem32_bars;
+    PCIBarResouce* mem64_bars;
+    uint32_t alloc_start;
+    uint32_t alloc_pos;
+    uint32_t alloc_end;
+    uint16_t platform_io_start;
+    uint32_t flags;
+} Globals;
+
+
+static Globals* globals = (Globals*)0x00000500;
 
 
 static inline void post_and_halt(uint8_t code)
@@ -136,6 +212,14 @@ static inline uint32_t ind(uint16_t port)
     }
 
     return val;
+}
+
+
+static void memset(void* from, uint8_t patern, uint32_t n)
+{
+    uint8_t* now = from;
+    uint8_t* end = now + n;
+    for (; now < end; now++) *now = patern;
 }
 
 
@@ -249,6 +333,21 @@ static void pci_for_each(pci_for_each_cb cb)
 }
 
 
+static inline uint32_t pci_bar_to_size(uint32_t bar)
+{
+    uint32_t mask = (bar & PCI_BAR_IO_MASK) ? PCI_BAR_IO_ADDRESS_MASK : PCI_BAR_MEM_ADDRESS_MASK;
+    int lsb = find_lsb_32(bar & mask);
+    return (lsb < 0) ? 0 : (1 << lsb);
+}
+
+
+static inline uint64_t pci_bar64_to_size(uint64_t bar)
+{
+    int lsb = find_lsb_64(bar & ~0xfULL);
+    return (lsb < 0) ? 0 : (1ULL << lsb);
+}
+
+
 static int pci_disable_device(uint32_t bus, uint32_t device)
 {
     uint16_t command = pci_read_16(bus, device, PCI_OFFSET_COMMAND);
@@ -259,14 +358,224 @@ static int pci_disable_device(uint32_t bus, uint32_t device)
 }
 
 
-static inline uint32_t pci_bar_to_size(uint32_t bar)
+static int pci_enable_device(uint32_t bus, uint32_t device)
 {
-    uint32_t mask = (bar & PCI_BAR_IO_MASK) ? 0x3 : 0xf;
-    return (~bar | mask) + 1;
+    uint16_t command = pci_read_16(bus, device, PCI_OFFSET_COMMAND);
+    command |= (PCI_COMMAND_ENABLE_IO | PCI_COMMAND_ENABLE_MEM);
+    command &= ~PCI_COMMAND_DISABLE_INTERRUPT;
+    pci_write_16(bus, device, PCI_OFFSET_COMMAND, command);
+    return FALSE;
 }
 
 
-static inline void map_platform_io()
+address_t dumb_zalloc(uint32_t size)
+{
+    address_t ret;
+
+    size = ALIGN(size, DUMB_ALLOC_ALIGNMENT);
+
+    if (globals->alloc_end - globals->alloc_pos < size) {
+        post_and_halt(POST_CODE_DUMB_OOM);
+    }
+
+    ret = globals->alloc_pos;
+    globals->alloc_pos += size;
+    memset((void*)ret, 0, size);
+
+    return ret;
+}
+
+
+static void pci_add_bar(PCIBarResouce** head, uint32_t bus, uint32_t device, uint bar,
+                        uint64_t size)
+{
+    PCIBarResouce* item = (PCIBarResouce*)dumb_zalloc(sizeof(*item));
+    item->bus = bus;
+    item->device = device;
+    item->bar = bar;
+    item->size = size;
+
+    while (*head && (*head)->size >= item->size) head = &(*head)->next;
+
+    item->next = *head;
+    *head = item;
+}
+
+
+static void pci_add_io_bar(uint32_t bus, uint32_t device, uint bar, uint32_t size)
+{
+    if (size > PCI_IO_MAX_SIZE || size < PCI_IO_MIN_SIZE) {
+        post_and_halt(POST_CODE_BAR_SIZE_FAILED);
+    }
+
+    pci_add_bar(&globals->io_bars, bus, device, bar, size);
+}
+
+
+static void pci_add_32bit_bar(uint32_t bus, uint32_t device, uint bar, uint32_t size)
+{
+    if (size < PCI_MEM_MIN_SIZE) {
+        post_and_halt(POST_CODE_BAR_SIZE_FAILED);
+    }
+
+    pci_add_bar(&globals->mem32_bars, bus, device, bar, MAX(size, PAGE_SIZE));
+}
+
+
+static void pci_add_64bit_bar(uint32_t bus, uint32_t device, uint bar, uint64_t size)
+{
+    if (size < PCI_MEM_MIN_SIZE) {
+        post_and_halt(POST_CODE_BAR_SIZE_FAILED);
+    }
+
+    pci_add_bar(&globals->mem64_bars, bus, device, bar, MAX(size, PAGE_SIZE));
+}
+
+
+static uint32_t pci_read_bar_for_size(uint32_t bus, uint32_t device, uint bar)
+{
+    uint bar_address;
+    uint32_t original_val;
+    uint32_t val;
+
+    if (bar >= PCI_NUM_BARS) {
+        post_and_halt(POST_CODE_BAR_INDEX_INVALID);
+    }
+
+    bar_address = PCI_OFFSET_BAR_0 + bar * 4;
+    original_val = pci_read_32(bus, device, bar_address);
+    pci_write_32(bus, device, bar_address , ~0);
+    val = pci_read_32(bus, device, bar_address);
+    pci_write_32(bus, device, bar_address , original_val);
+
+    return val;
+}
+
+
+static void pci_get_class(uint32_t bus, uint32_t device, PCIDeviceType* type)
+{
+    uint32_t config_data = pci_read_32(bus, device, PCI_OFFSET_CLASS - 1);
+
+    type->pro_if = config_data >> 8;
+    type->sub_class = config_data >> 16;
+    type->class = config_data >> 24;
+}
+
+
+static int is_fixed_bar(uint32_t bus, uint32_t device, uint bar)
+{
+    PCIDeviceType type;
+
+    if (bar > 3) {
+        return FALSE;
+    }
+
+    pci_get_class(bus, device, &type);
+
+    if (type.class == PCI_CLASS_MASS_STORAGE && type.sub_class == PCI_MASS_STORAGE_SUBCLASS_IDE) {
+        uint compatibility_bit = (bar / 2) * 2;
+        return !(type.pro_if & (1 << compatibility_bit));
+    }
+
+    return FALSE;
+}
+
+
+static void pci_mark_for_activation(uint32_t bus, uint32_t device)
+{
+    PCIDevDescriptor* descriptor = (PCIDevDescriptor*)dumb_zalloc(sizeof(*descriptor));
+    PCIDevDescriptor** now;
+
+    descriptor->bus = bus;
+    descriptor->device = device;
+
+    for (now = &globals->activation_list; *now; now = &(*now)->next);
+
+    *now = descriptor;
+}
+
+
+static int pci_enable_test(uint32_t bus, uint32_t device)
+{
+    PCIDeviceType type;
+
+    pci_get_class(bus, device, &type);
+
+    switch (type.class) {
+    case PCI_CLASS_MASS_STORAGE:
+        if (type.sub_class == PCI_MASS_STORAGE_SUBCLASS_IDE &&
+                (~type.pro_if & 0x0a /*fixed mode of operation in primary or secondary channel*/)) {
+            if (globals->flags & FLAGS_IDE_RES_WAS_CLAIMED) {
+                return FALSE;
+            }
+
+            globals->flags |= FLAGS_IDE_RES_WAS_CLAIMED;
+        }
+        break;
+    case PCI_CLASS_DISPLAY:
+        if (type.sub_class == PCI_DISPLAY_SUBCLASS_VGA &&
+                                                       type.pro_if == PCI_VGA_PROGIF_VGACOMPAT) {
+            if (globals->flags & FLAGS_VGA_RES_WAS_CLAIMED) {
+                return FALSE;
+            }
+
+            globals->flags |= FLAGS_VGA_RES_WAS_CLAIMED;
+        }
+        break;
+    }
+
+    return TRUE;
+}
+
+static int pci_collect_resources(uint32_t bus, uint32_t device)
+{
+    uint bar = 0;
+
+    if (!pci_enable_test(bus, device)) {
+        return FALSE;
+    }
+
+    pci_mark_for_activation(bus, device);
+
+    for (; bar < PCI_NUM_BARS; bar++) {
+        uint32_t val;
+
+        if (is_fixed_bar(bus, device, bar)) {
+            continue;
+        }
+
+        val = pci_read_bar_for_size(bus, device, bar);
+
+        if (!val) {
+            continue;
+        }
+
+        if ((val & PCI_BAR_IO_MASK)) {
+            pci_add_io_bar(bus, device, bar, pci_bar_to_size(val));
+        } else {
+            uint mem_type = (val >> 1) & 0x3;
+            switch (mem_type) {
+            case PCI_MEMTYPE_32:
+                pci_add_32bit_bar(bus, device, bar, pci_bar_to_size(val));
+                break;
+            case PCI_MEMTYPE_64: {
+                uint64_t bar64 = pci_read_bar_for_size(bus, device, bar + 1);
+                bar64 = (bar64 << 32) | val;
+                pci_add_64bit_bar(bus, device, bar, pci_bar64_to_size(bar64));
+                ++bar;
+                break;
+            }
+            default:
+                post_and_halt(POST_CODE_BAR_MEM_TYPE_INVALID);
+            }
+        }
+    }
+
+    return FALSE;
+}
+
+
+static inline void early_map_platform_io()
 {
     uint32_t io_bar;
     uint16_t command;
@@ -291,16 +600,6 @@ static inline void map_platform_io()
 }
 
 
-typedef struct Globals {
-    uint32_t below_1m_used_pages;
-    uint32_t above_1m_pages;
-    uint32_t below_4g_pages;
-    uint32_t below_4g_used_pages;
-    uint32_t above_4g_pages;
-} Globals;
-
-static Globals* globals = (Globals*)0x00000500;
-
 static void init_platform()
 {
     uint8_t lock = inb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_LOCK);
@@ -309,6 +608,8 @@ static void init_platform()
         post(POST_CODE_LOCKED);
         restart();
     }
+
+    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_LOCK, 0);
 
     outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_1M_USED_PAGES);
     globals->below_1m_used_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_DATA);
@@ -335,19 +636,243 @@ static void globals_test()
     outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, globals->below_4g_pages);
     outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, globals->below_4g_used_pages);
     outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, globals->above_4g_pages);
+}
+
+
+static void globals_test_2()
+{
+    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_1M_USED_PAGES);
+    globals->below_1m_used_pages = ind(globals->platform_io_start + PLATFORM_IO_DATA);
+
+    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_ABOVE_1M_PAGES);
+    globals->above_1m_pages = ind(globals->platform_io_start + PLATFORM_IO_DATA);
+
+    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_4G_PAGES);
+    globals->below_4g_pages = ind(globals->platform_io_start + PLATFORM_IO_DATA);
+
+    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_4G_USED_PAGES);
+    globals->below_4g_used_pages = ind(globals->platform_io_start + PLATFORM_IO_DATA);
+
+    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_ABOVE_4G_PAGES);
+    globals->above_4g_pages  = ind(globals->platform_io_start + PLATFORM_IO_DATA);
+
+    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->platform_io_start);
+    outd(globals->platform_io_start + PLATFORM_IO_ERROR, 0);
+    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->below_1m_used_pages);
+    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->above_1m_pages);
+    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->below_4g_pages);
+    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->below_4g_used_pages);
+    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->above_4g_pages);
+
     halt();
+}
+
+
+static void pci_asign_io()
+{
+    uint32_t address = PCI_BASE_IO_ADDRESS;
+
+    PCIBarResouce* item = globals->io_bars;
+
+    for (; item; item = item->next) {
+        uint32_t bar_val;
+        uint32_t bar_address;
+
+        if (address + item->size > (1 << 16)) {
+            post_and_halt(POST_CODE_OOM);
+        }
+
+        bar_address = PCI_OFFSET_BAR_0 + item->bar * 4;
+        bar_val = pci_read_32(item->bus, item->device, bar_address);
+        bar_val &= ~PCI_BAR_IO_ADDRESS_MASK;
+        bar_val |= address;
+        pci_write_32(item->bus, item->device, bar_address , bar_val);
+        address += item->size;
+    }
+}
+
+
+static inline PCIBarResouce* pci_first_unmapped_mem32()
+{
+    PCIBarResouce* item = globals->mem32_bars;
+
+    for (; item && item->mapped; item = item->next);
+
+    return item;
+}
+
+
+static void pci_asign_mem32()
+{
+    uint32_t pci_hole_start = globals->above_1m_pages * PAGE_SIZE + MB;
+    uint32_t pci_end_address = ((1 << (32 - PAGE_SHIFT)) - globals->below_4g_pages) * PAGE_SIZE;
+    PCIBarResouce* item;
+    uint32_t alloc_start;
+    uint32_t address;
+
+    for (;;) {
+        if (!(item = pci_first_unmapped_mem32())) {
+            return;
+        }
+
+        if (item->size > pci_end_address - pci_hole_start) {
+            post_and_halt(POST_CODE_OOM);
+        }
+
+        alloc_start = ALIGN(pci_hole_start, item->size);
+        address = alloc_start;
+
+        for (; item; item = item->next) {
+            uint32_t bar_val;
+            uint32_t bar_address;
+
+            if (item->mapped || item->size > pci_end_address - address) {
+                continue;
+            }
+
+            bar_address = PCI_OFFSET_BAR_0 + item->bar * 4;
+            bar_val = pci_read_32(item->bus, item->device, bar_address);
+            bar_val &= ~PCI_BAR_MEM_ADDRESS_MASK;
+            bar_val |= address;
+            pci_write_32(item->bus, item->device, bar_address , bar_val);
+            address += item->size;
+            item->mapped = TRUE;
+        }
+
+        pci_end_address = alloc_start;
+    }
+}
+
+
+static void pci_asign_mem64()
+{
+    PCIBarResouce* item = globals->mem64_bars;
+    uint64_t pci_hole_start;
+    uint64_t pci_hole_end;
+    uint64_t alloc_start;
+
+    if (!item) {
+        return;
+    }
+
+    pci_hole_start = (uint64_t)globals->above_4g_pages << PAGE_SHIFT;
+    pci_hole_start += 1ULL << 32;
+    pci_hole_end = 1ULL << NOX_ADDRESS_LINES;
+
+    if (item->size > pci_hole_end - pci_hole_start) {
+        post_and_halt(POST_CODE_OOM);
+    }
+
+    alloc_start = ALIGN(pci_hole_start, item->size);
+
+    for (; item; item = item->next) {
+        uint32_t bar_val;
+        uint32_t bar_address;
+
+        if (item->size > pci_hole_end - alloc_start) {
+            post_and_halt(POST_CODE_OOM);
+        }
+
+        bar_address = PCI_OFFSET_BAR_0 + item->bar * 4;
+        bar_val = pci_read_32(item->bus, item->device, bar_address);
+        bar_val &= ~PCI_BAR_MEM_ADDRESS_MASK;
+        bar_val |= alloc_start;
+        pci_write_32(item->bus, item->device, bar_address , bar_val);
+        pci_write_32(item->bus, item->device, bar_address + 4, alloc_start >> 32);
+
+        alloc_start += item->size;
+    }
+}
+
+
+static void pci_activation()
+{
+    PCIDevDescriptor* descriptor = globals->activation_list;
+
+    for (; descriptor; descriptor = descriptor->next) {
+        PCIDeviceType type;
+        uint bus = descriptor->bus;
+        uint device = descriptor->device;
+        uint8_t interrupt_pin;
+
+        pci_enable_device(bus, device);
+
+        pci_get_class(bus, device, &type);
+
+        switch (type.class) {
+        case PCI_CLASS_MASS_STORAGE:
+            if (type.sub_class == PCI_MASS_STORAGE_SUBCLASS_IDE) {
+                if (type.pro_if & 0x80) {
+                    uint16_t command = pci_read_16(bus, device, PCI_OFFSET_COMMAND);
+                    uint16_t bm_io;
+
+                    command |= PCI_COMMAND_BUS_MASTER;
+                    pci_write_16(bus, device, PCI_OFFSET_COMMAND, command);
+
+                    //set device 0 dma active for both primary and secondary channel.
+                    //todo: use ATA_ID_CAP1_DMA_MASK
+                    bm_io = pci_read_32(bus, device, PCI_OFFSET_BAR_4) & PCI_BAR_IO_ADDRESS_MASK;
+                    outb(bm_io + 0x02, (1 << 5));
+                    outb(bm_io + 0x0a, (1 << 5));
+                }
+            }
+            break;
+        }
+
+        interrupt_pin = pci_read_8(bus, device, PCI_OFFSET_INTERRUPT_PIN);
+
+        if (interrupt_pin) {
+            post_and_halt(POST_CODE_TODO_UPDATE_INT_LINE);
+        }
+    }
+}
+
+
+static void init_pci()
+{
+    pci_for_each(pci_disable_device);
+    pci_for_each(pci_collect_resources);
+    pci_asign_io();
+    pci_asign_mem32();
+    pci_asign_mem64();
+    pci_activation();
+}
+
+
+static void enable_a20()
+{
+    uint8_t val = inb(IO_PORT_SYSCTRL);
+    outb(IO_PORT_SYSCTRL, val | (1 << SYSCTRL_A20_BIT));
+}
+
+
+static void init_globals()
+{
+    memset(globals, 0, sizeof(*globals));
+    globals->alloc_start = DUMB_ALLOC_START;
+    globals->alloc_end = DUMB_ALLOC_START + DUMB_ALLOC_SIZE;
+    globals->alloc_pos = globals->alloc_start;
+}
+
+
+static void map_platform_io()
+{
+    globals->platform_io_start = pci_read_32(0, 0, PCI_OFFSET_BAR_0) & PCI_BAR_IO_ADDRESS_MASK;
 }
 
 void init()
 {
     post(POST_CODE_INIT32);
+    enable_a20();
+    init_globals();
     detect_platform();
     pci_for_each(pci_disable_device);
-    map_platform_io();
+    early_map_platform_io();
     init_platform();
-
     globals_test();
-
+    init_pci();
+    map_platform_io();
+    globals_test_2();
     restart();
 }
 

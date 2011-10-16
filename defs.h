@@ -27,10 +27,13 @@
 #ifndef _H_DEFS
 #define _H_DEFS
 
-#define IO_POST_CODE 0x80
-#define IO_PORT_A20 0x92
+#define IO_PORT_POST_CODE 0x80
+#define IO_PORT_SYSCTRL 0x92
 #define IO_PORT_PCI_ADDRESS 0xcf8
 #define IO_PORT_PCI_DATA 0xcfc
+
+#define SYSCTRL_RESET_BIT 0
+#define SYSCTRL_A20_BIT 1
 
 #define POST_CODE_START16   1
 #define POST_CODE_INIT16    2
@@ -40,9 +43,21 @@
 #define POST_CODE_PLATFORM_OK 6
 #define POST_CODE_BAR_TYPE_FAILED 7
 #define POST_CODE_BAR_SIZE_FAILED 8
-#define POST_CODE_LOCKED 9
+#define POST_CODE_BAR_INDEX_INVALID 9
+#define POST_CODE_BAR_MEM_TYPE_INVALID 10
+#define POST_CODE_LOCKED 11
+#define POST_CODE_DUMB_OOM 12
+#define POST_CODE_OOM 13
+#define POST_CODE_TODO_UPDATE_INT_LINE 14
 
 #define NULL 0
+
+#define PAGE_SHIFT 12
+#define PAGE_SIZE (1 << PAGE_SHIFT)
+
+#define KB 1024
+#define MB (1024 * KB)
+#define GB (1024 * MB)
 
 #define TRUE 1
 #define FALSE 0

@@ -36,7 +36,7 @@ extern  _init
 
 start:
     mov al, POST_CODE_START32
-    mov dx, IO_POST_CODE
+    mov dx, IO_PORT_POST_CODE
     out dx, al
 
     mov ax, DATA_SEGMENT_SELECTOR
@@ -57,4 +57,42 @@ _halt:
 .infloop:
     hlt
     jmp .infloop
+
+
+; copy from watcom i8rs386.asm
+global __U8LS
+__U8LS:
+    mov     ecx,ebx         ; get shift-count into cl
+    and     cl,03fH         ; get mod 64 shift count
+    test    cl,020H         ; see if count >= 32
+    jnz     .g_or_e_32
+    shld    edx,eax,cl
+    shl     eax,cl
+    ret                     ; and return!!!
+
+.g_or_e_32:
+    mov     edx,eax         ; shift lo into hi (1st 32 bits now shifted)
+    sub     cl,020H         ; knock off 32-bits of shifting
+    xor     eax,eax         ; lo 32 bits are now zero
+    shl     edx,cl          ; shift remaining part
+    ret                     ; and return!!!
+
+
+; copy from watcom i8rs386.asm
+global __U8RS
+__U8RS:
+    mov     ecx,ebx         ; get shift-count into cl
+    and     cl,03fH         ; get mod 64 shift count
+    test    cl,020H         ; see if count >= 32
+    jnz     .g_or_e_32
+    shrd    eax,edx,cl
+    shr     edx,cl
+    ret                     ; and return!!!
+
+.g_or_e_32:
+    mov     eax,edx
+    sub     ecx,020H        ; knock off 32-bits of shifting
+    xor     edx,edx         ; zero extend result
+    shr     eax,cl
+    ret
 

@@ -41,7 +41,7 @@ global _call32
 entry:
     cli
     mov al, POST_CODE_START16
-    mov dx, IO_POST_CODE
+    mov dx, IO_PORT_POST_CODE
     out dx, al
     mov ax, cs
     mov ds, ax
