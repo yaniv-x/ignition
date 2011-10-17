@@ -90,6 +90,12 @@ enum {
     PCI_BAR_IO_ADDRESS_MASK = ~0x3,
     PCI_BAR_MEM_ADDRESS_MASK = ~0xf,
 
+    PCI_ROM_ENABLE_MASK = 1,
+    PCI_ROM_FIRST_ADDRESS_BIT = 11,
+    PCI_ROM_MIN_SIZE = (1 << PCI_ROM_FIRST_ADDRESS_BIT),
+    PCI_ROM_ADDRESS_MASK = ~(PCI_ROM_MIN_SIZE - 1),
+    PCI_ROM_MAX_SIZE = 16 * MB,
+
     PCI_BASE_IO_ADDRESS = 0xc000,
     PCI_NUM_BARS = 6,
 
@@ -113,6 +119,8 @@ enum {
 #define NOX_PCI_DEV_ID_HOST_BRIDGE 0x0001
 #define NOX_PCI_DEV_HOST_BRIDGE_REV 1
 #define NOX_ADDRESS_LINES 52
+
+#define EXP_ROM_BAR PCI_NUM_BARS
 
 enum {
     PLATFORM_IO_LOCK = 0x00,
@@ -172,6 +180,7 @@ typedef struct Globals {
     uint32_t above_4g_pages;
     PCIDevDescriptor* activation_list;
     PCIBarResouce* io_bars;
+    PCIBarResouce* mem_bars;
     PCIBarResouce* mem32_bars;
     PCIBarResouce* mem64_bars;
     uint32_t alloc_start;
@@ -418,7 +427,9 @@ static void pci_add_32bit_bar(uint32_t bus, uint32_t device, uint bar, uint32_t 
         post_and_halt(POST_CODE_BAR_SIZE_FAILED);
     }
 
-    pci_add_bar(&globals->mem32_bars, bus, device, bar, MAX(size, PAGE_SIZE));
+    size = MAX(size, PAGE_SIZE);
+    pci_add_bar(&globals->mem_bars, bus, device, bar, size);
+    pci_add_bar(&globals->mem32_bars, bus, device, bar, size);
 }
 
 
@@ -428,7 +439,21 @@ static void pci_add_64bit_bar(uint32_t bus, uint32_t device, uint bar, uint64_t 
         post_and_halt(POST_CODE_BAR_SIZE_FAILED);
     }
 
-    pci_add_bar(&globals->mem64_bars, bus, device, bar, MAX(size, PAGE_SIZE));
+    size = MAX(size, PAGE_SIZE);
+    pci_add_bar(&globals->mem_bars, bus, device, bar, size);
+    pci_add_bar(&globals->mem64_bars, bus, device, bar, size);
+}
+
+
+static void pci_add_exp_rom_bar(uint32_t bus, uint32_t device, uint32_t rom_size)
+{
+    if (rom_size > PCI_ROM_MAX_SIZE || rom_size < PCI_ROM_MIN_SIZE) {
+        post_and_halt(POST_CODE_PCI_EXP_ROM_SIZE_INVALID);
+    }
+
+    rom_size = MAX(rom_size, PAGE_SIZE);
+    pci_add_bar(&globals->mem_bars, bus, device, EXP_ROM_BAR, rom_size);
+    pci_add_bar(&globals->mem32_bars, bus, device, EXP_ROM_BAR, rom_size);
 }
 
 
@@ -529,6 +554,7 @@ static int pci_enable_test(uint32_t bus, uint32_t device)
 
 static int pci_collect_resources(uint32_t bus, uint32_t device)
 {
+    uint32_t exp_rom_bar;
     uint bar = 0;
 
     if (!pci_enable_test(bus, device)) {
@@ -569,6 +595,16 @@ static int pci_collect_resources(uint32_t bus, uint32_t device)
                 post_and_halt(POST_CODE_BAR_MEM_TYPE_INVALID);
             }
         }
+    }
+
+    pci_write_32(bus, device, PCI_OFFSET_ROM_ADDRESS, ~PCI_ROM_ENABLE_MASK);
+    exp_rom_bar = pci_read_32(bus, device, PCI_OFFSET_ROM_ADDRESS);
+    exp_rom_bar &= PCI_ROM_ADDRESS_MASK;
+    pci_write_32(bus, device, PCI_OFFSET_ROM_ADDRESS, 0);
+
+    if (exp_rom_bar) {
+        uint32_t rom_size = pci_bar_to_size(exp_rom_bar & PCI_ROM_ADDRESS_MASK);
+        pci_add_exp_rom_bar(bus, device, rom_size);
     }
 
     return FALSE;
@@ -679,7 +715,7 @@ static void pci_asign_io()
         uint32_t bar_address;
 
         if (address + item->size > (1 << 16)) {
-            post_and_halt(POST_CODE_OOM);
+            post_and_halt(POST_CODE_PCI_OOM);
         }
 
         bar_address = PCI_OFFSET_BAR_0 + item->bar * 4;
@@ -692,9 +728,9 @@ static void pci_asign_io()
 }
 
 
-static inline PCIBarResouce* pci_first_unmapped_mem32()
+static inline PCIBarResouce* pci_first_unmapped(PCIBarResouce* bar_list)
 {
-    PCIBarResouce* item = globals->mem32_bars;
+    PCIBarResouce* item = bar_list;
 
     for (; item && item->mapped; item = item->next);
 
@@ -702,7 +738,7 @@ static inline PCIBarResouce* pci_first_unmapped_mem32()
 }
 
 
-static void pci_asign_mem32()
+static int pci_asign_mem32(PCIBarResouce* bar_list)
 {
     uint32_t pci_hole_start = globals->above_1m_pages * PAGE_SIZE + MB;
     uint32_t pci_end_address = ((1 << (32 - PAGE_SHIFT)) - globals->below_4g_pages) * PAGE_SIZE;
@@ -711,12 +747,12 @@ static void pci_asign_mem32()
     uint32_t address;
 
     for (;;) {
-        if (!(item = pci_first_unmapped_mem32())) {
-            return;
+        if (!(item = pci_first_unmapped(bar_list))) {
+            return TRUE;
         }
 
         if (item->size > pci_end_address - pci_hole_start) {
-            post_and_halt(POST_CODE_OOM);
+            return FALSE;
         }
 
         alloc_start = ALIGN(pci_hole_start, item->size);
@@ -730,11 +766,20 @@ static void pci_asign_mem32()
                 continue;
             }
 
-            bar_address = PCI_OFFSET_BAR_0 + item->bar * 4;
-            bar_val = pci_read_32(item->bus, item->device, bar_address);
-            bar_val &= ~PCI_BAR_MEM_ADDRESS_MASK;
-            bar_val |= address;
-            pci_write_32(item->bus, item->device, bar_address , bar_val);
+            if (item->bar == EXP_ROM_BAR) {
+                pci_write_32(item->bus, item->device, PCI_OFFSET_ROM_ADDRESS , address);
+            } else {
+                bar_address = PCI_OFFSET_BAR_0 + item->bar * 4;
+                bar_val = pci_read_32(item->bus, item->device, bar_address);
+                bar_val &= ~PCI_BAR_MEM_ADDRESS_MASK;
+                bar_val |= address;
+                pci_write_32(item->bus, item->device, bar_address , bar_val);
+
+                if (((bar_val >> 1) & 0x3) == PCI_MEMTYPE_64) {
+                    pci_write_32(item->bus, item->device, bar_address + 4 , 0);
+                }
+            }
+
             address += item->size;
             item->mapped = TRUE;
         }
@@ -760,7 +805,7 @@ static void pci_asign_mem64()
     pci_hole_end = 1ULL << NOX_ADDRESS_LINES;
 
     if (item->size > pci_hole_end - pci_hole_start) {
-        post_and_halt(POST_CODE_OOM);
+        post_and_halt(POST_CODE_PCI_OOM);
     }
 
     alloc_start = ALIGN(pci_hole_start, item->size);
@@ -770,7 +815,7 @@ static void pci_asign_mem64()
         uint32_t bar_address;
 
         if (item->size > pci_hole_end - alloc_start) {
-            post_and_halt(POST_CODE_OOM);
+            post_and_halt(POST_CODE_PCI_OOM);
         }
 
         bar_address = PCI_OFFSET_BAR_0 + item->bar * 4;
@@ -833,8 +878,15 @@ static void init_pci()
     pci_for_each(pci_disable_device);
     pci_for_each(pci_collect_resources);
     pci_asign_io();
-    pci_asign_mem32();
-    pci_asign_mem64();
+
+    if (!pci_asign_mem32(globals->mem_bars)) {
+        if (!pci_asign_mem32(globals->mem32_bars)) {
+            post_and_halt(POST_CODE_PCI_OOM);
+        }
+
+        pci_asign_mem64();
+    }
+
     pci_activation();
 }
 
