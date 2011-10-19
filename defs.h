@@ -52,6 +52,7 @@
 #define POST_CODE_PCI_EXP_ROM_SIZE_INVALID 15
 
 #define NULL 0
+#define EOS 0
 
 #define PAGE_SHIFT 12
 #define PAGE_SIZE (1 << PAGE_SHIFT)

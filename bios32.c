@@ -125,9 +125,13 @@ enum {
 enum {
     PLATFORM_IO_LOCK = 0x00,
     PLATFORM_IO_INDEX = 0x01,
+    PLATFORM_IO_LOG = 0x02,
     PLATFORM_IO_ERROR = 0x04,
     PLATFORM_IO_DATA = 0x08,
     PLATFORM_IO_END = 0x0c,
+
+    PLATFORM_MEM_PAGES = 1,
+    PLATFORM_LOG_BUFF_SIZE = 1024,
 };
 
 enum {
@@ -186,7 +190,8 @@ typedef struct Globals {
     uint32_t alloc_start;
     uint32_t alloc_pos;
     uint32_t alloc_end;
-    uint16_t platform_io_start;
+    uint16_t platform_io;
+    address_t platform_ram;
     uint32_t flags;
 } Globals;
 
@@ -224,11 +229,212 @@ static inline uint32_t ind(uint16_t port)
 }
 
 
-static void memset(void* from, uint8_t patern, uint32_t n)
+static void mem_set(void* from, uint8_t patern, uint32_t n)
 {
     uint8_t* now = from;
     uint8_t* end = now + n;
     for (; now < end; now++) *now = patern;
+}
+
+
+static void mem_reset(void* from, uint32_t n)
+{
+    uint8_t* now = from;
+    uint8_t* end = now + n;
+    for (; now < end; now++) *now = 0;
+}
+
+
+static uint32_t string_length(const uint8_t* str)
+{
+    uint32_t len = 0;
+
+    while (str[len]) len++;
+
+    return len;
+}
+
+
+static void string_copy(uint8_t* dest, const uint8_t* src, uint32_t buf_size)
+{
+    const uint8_t* end;
+
+    if (!buf_size) {
+        return;
+    }
+
+    end = src + MIN(string_length(src), buf_size - 1);
+
+    for (; src < end; src++, dest++) *dest = *src;
+
+    *dest = EOS;
+}
+
+
+static uint32_t format_put_x(char* dest, uint32_t len, uint64_t val, uint bits)
+{
+    static char conv_table[] = {
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        'a', 'b', 'c', 'd', 'e', 'f',
+    };
+
+    uint32_t start_len = len;
+    int shift = bits - 4;
+
+    while (shift && !((val >> shift) & 0xf)) shift -=4;
+
+    for (; len && shift >= 0 ; len--, dest++, shift -= 4) {
+        *dest = conv_table[(val >> shift) & 0xf];
+    }
+
+    return start_len - len;
+}
+
+
+static uint32_t format_put_u(char* dest, uint32_t len, uint64_t val)
+{
+    uint32_t start_len = len;
+    uint64_t tmp = val / 10;
+    uint32_t div = 1;
+
+    for (; tmp; div *= 10, tmp /= 10);
+
+    for (; len && div; div /= 10, len--, dest++) {
+         *dest = 0x30 + val / div;
+         val %= div;
+    }
+
+    return start_len - len;
+}
+
+
+static uint32_t format_put_str(char* dest, uint32_t len, char* str)
+{
+    uint32_t start_len;
+
+    if (!str) {
+        return format_put_str(dest, len, "NULL");
+    }
+
+    start_len = len;
+
+    for (; len && *str; len--, str++, dest++) *dest = *str;
+
+    return start_len - len;
+}
+
+
+enum {
+    FORMAT_STATE_ORDINARY = 0,
+    FORMAT_STATE_START,
+    FORMAT_STATE_FLAGS,
+    FORMAT_STATE_WIDTH,
+    FORMAT_STATE_PRECISION,
+    FORMAT_STATE_LENGTH,
+
+    FORMAT_LENGTH_L = 1,
+    FORMAT_LENGTH_LL = 2,
+};
+
+
+static void format_str(char* dest, const char* format, uint32_t len, ...)
+{
+    int stage = FORMAT_STATE_ORDINARY;
+    uint32_t* args = &len + 1;
+    uint advance = 0;
+    uint length = 0;
+
+    if (!len--) {
+        return;
+    }
+
+    for (; *format && len; format++) {
+        if (*format == '%') {
+            if (!stage) {
+                stage = FORMAT_STATE_START;
+                continue;
+            }
+
+            if (stage != FORMAT_STATE_START) {
+                // invalid format
+                break;
+            }
+
+            stage = FORMAT_STATE_START;
+        }
+
+        if (!stage) {
+            *dest++ = *format;
+            --len;
+            continue;
+        }
+
+        switch (*format) {
+        case 'x': {
+            uint64_t val;
+            uint bits;
+
+            if (length == FORMAT_LENGTH_LL) {
+                val = *(uint64_t*)args;
+                args += 2;
+                bits = 64;
+            } else {
+                val = *args++;
+                bits = 32;
+            }
+
+            advance = format_put_x(dest, len, val, bits);
+
+            break;
+        }
+        case 'u': {
+            uint64_t val;
+
+            if (length == FORMAT_LENGTH_LL) {
+                val = *(uint64_t*)args;
+                val += 2;
+            } else {
+                val = *args++;
+            }
+
+            advance = format_put_u(dest, len, val);
+
+            break;
+        }
+        case 's':
+            advance = format_put_str(dest, len, (char*)*args++);
+            break;
+        case 'l':
+            stage = FORMAT_STATE_LENGTH;
+
+            if (!length) {
+                length = FORMAT_LENGTH_L;
+                break;
+            }
+
+            if (length == FORMAT_LENGTH_L) {
+                length = FORMAT_LENGTH_LL;
+                break;
+            }
+
+            // invalid format
+            len = 0;
+            break;
+        default:
+            // invalid format
+            len = 0;
+        }
+
+        if (advance) {
+            len -= advance;
+            dest += advance;
+            stage = FORMAT_STATE_ORDINARY;
+            advance = 0;
+            length = 0;
+        }
+    }
+
+    *dest = 0;
 }
 
 
@@ -319,6 +525,17 @@ static void detect_platform()
 }
 
 
+void platform_debug_string(const char* str)
+{
+    if (!globals->platform_ram) {
+        return;
+    }
+
+    string_copy((uint8_t*)globals->platform_ram, str, PLATFORM_LOG_BUFF_SIZE);
+    outb(globals->platform_io + PLATFORM_IO_LOG, 0);
+}
+
+
 typedef int (*pci_for_each_cb)(uint32_t bus, uint32_t device);
 
 static void pci_for_each(pci_for_each_cb cb)
@@ -389,7 +606,7 @@ address_t dumb_zalloc(uint32_t size)
 
     ret = globals->alloc_pos;
     globals->alloc_pos += size;
-    memset((void*)ret, 0, size);
+    mem_set((void*)ret, 0, size);
 
     return ret;
 }
@@ -664,46 +881,6 @@ static void init_platform()
 }
 
 
-static void globals_test()
-{
-    outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, 0);
-    outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, globals->below_1m_used_pages);
-    outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, globals->above_1m_pages);
-    outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, globals->below_4g_pages);
-    outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, globals->below_4g_used_pages);
-    outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, globals->above_4g_pages);
-}
-
-
-static void globals_test_2()
-{
-    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_1M_USED_PAGES);
-    globals->below_1m_used_pages = ind(globals->platform_io_start + PLATFORM_IO_DATA);
-
-    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_ABOVE_1M_PAGES);
-    globals->above_1m_pages = ind(globals->platform_io_start + PLATFORM_IO_DATA);
-
-    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_4G_PAGES);
-    globals->below_4g_pages = ind(globals->platform_io_start + PLATFORM_IO_DATA);
-
-    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_4G_USED_PAGES);
-    globals->below_4g_used_pages = ind(globals->platform_io_start + PLATFORM_IO_DATA);
-
-    outb(globals->platform_io_start + PLATFORM_IO_INDEX, PLATFORM_REG_ABOVE_4G_PAGES);
-    globals->above_4g_pages  = ind(globals->platform_io_start + PLATFORM_IO_DATA);
-
-    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->platform_io_start);
-    outd(globals->platform_io_start + PLATFORM_IO_ERROR, 0);
-    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->below_1m_used_pages);
-    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->above_1m_pages);
-    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->below_4g_pages);
-    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->below_4g_used_pages);
-    outd(globals->platform_io_start + PLATFORM_IO_ERROR, globals->above_4g_pages);
-
-    halt();
-}
-
-
 static void pci_asign_io()
 {
     uint32_t address = PCI_BASE_IO_ADDRESS;
@@ -900,7 +1077,7 @@ static void enable_a20()
 
 static void init_globals()
 {
-    memset(globals, 0, sizeof(*globals));
+    mem_set(globals, 0, sizeof(*globals));
     globals->alloc_start = DUMB_ALLOC_START;
     globals->alloc_end = DUMB_ALLOC_START + DUMB_ALLOC_SIZE;
     globals->alloc_pos = globals->alloc_start;
@@ -909,8 +1086,10 @@ static void init_globals()
 
 static void map_platform_io()
 {
-    globals->platform_io_start = pci_read_32(0, 0, PCI_OFFSET_BAR_0) & PCI_BAR_IO_ADDRESS_MASK;
+    globals->platform_io = pci_read_32(0, 0, PCI_OFFSET_BAR_0) & PCI_BAR_IO_ADDRESS_MASK;
+    globals->platform_ram = pci_read_32(0, 0, PCI_OFFSET_BAR_0 + 4) & PCI_BAR_MEM_ADDRESS_MASK;
 }
+
 
 void init()
 {
@@ -921,10 +1100,17 @@ void init()
     pci_for_each(pci_disable_device);
     early_map_platform_io();
     init_platform();
-    globals_test();
     init_pci();
     map_platform_io();
-    globals_test_2();
+
+    platform_debug_string("hello :)");
+
+    //...
+
+    platform_debug_string(__FUNCTION__ ": halting...");
+
+    halt();
+
     restart();
 }
 
