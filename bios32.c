@@ -147,6 +147,10 @@ enum {
 #define FLAGS_VGA_RES_WAS_CLAIMED (1 << 1)
 
 
+#define BDA_WORD(offset) ((uint16_t*)(bda + (offset)))
+#define EBDA_BYTE(offset) ((uint8_t*)(ebda + (offset)))
+
+
 #define DUMB_ALLOC_ALIGNMENT 4
 #define DUMB_ALLOC_START 0x00060000
 #define DUMB_ALLOC_SIZE (64 * 1024)
@@ -197,6 +201,8 @@ typedef struct Globals {
 
 
 static Globals* globals = (Globals*)0x00000500;
+static uint8_t* bda = (uint8_t*)BIOS_DATA_AREA_ADDRESS;
+static uint8_t* ebda = (uint8_t*)BIOS_EXTENDED_DATA_AREA_ADDRESS;
 
 
 static inline void post_and_halt(uint8_t code)
@@ -1091,6 +1097,18 @@ static void map_platform_io()
 }
 
 
+static inline void init_bios_data_area()
+{
+    post(POST_CODE_BDA);
+
+    mem_reset(bda, BIOS_DATA_AREA_SIZE);
+    mem_reset(ebda, BIOS_EXTENDED_DATA_AREA_KB * KB);
+
+    *BDA_WORD(BDA_OFFSET_EBDA) = BIOS_EXTENDED_DATA_AREA_ADDRESS >> 4;
+    *EBDA_BYTE(EBDA_OFFSET_SIZE) = BIOS_EXTENDED_DATA_AREA_KB;
+}
+
+
 void init()
 {
     post(POST_CODE_INIT32);
@@ -1104,6 +1122,8 @@ void init()
     map_platform_io();
 
     platform_debug_string("hello :)");
+
+    init_bios_data_area();
 
     //...
 
