@@ -235,6 +235,46 @@ static inline uint32_t ind(uint16_t port)
 }
 
 
+static void cpuid(uint32_t* a, uint32_t* b, uint32_t* c, uint32_t* d)
+{
+    __asm {
+        mov esi, a
+        mov eax, [esi]
+        cpuid
+        mov [esi], eax
+        mov esi, b
+        mov [esi], ebx
+        mov esi, c
+        mov [esi], ecx
+        mov esi, d
+        mov [esi], edx
+    }
+}
+
+
+static uint32_t get_eflags()
+{
+    uint32_t r;
+
+    __asm {
+       pushf
+       pop eax
+       mov r, eax
+    }
+
+    return r;
+}
+
+
+static void put_eflags(uint32_t flags)
+{
+    __asm {
+       push flags
+       popf
+    }
+}
+
+
 static void mem_set(void* from, uint8_t patern, uint32_t n)
 {
     uint8_t* now = from;
@@ -1090,7 +1130,7 @@ static void init_globals()
 }
 
 
-static void map_platform_io()
+static void reset_platform_io()
 {
     globals->platform_io = pci_read_32(0, 0, PCI_OFFSET_BAR_0) & PCI_BAR_IO_ADDRESS_MASK;
     globals->platform_ram = pci_read_32(0, 0, PCI_OFFSET_BAR_0 + 4) & PCI_BAR_MEM_ADDRESS_MASK;
@@ -1109,6 +1149,44 @@ static inline void init_bios_data_area()
 }
 
 
+static inline void init_cpu()
+{
+    uint32_t eax;
+    uint32_t ebx;
+    uint32_t ecx;
+    uint32_t edx;
+    uint32_t flags;
+
+    post(POST_CODE_CPU);
+
+    flags = get_eflags();
+    put_eflags(flags ^ (1 << CPU_FLAGS_ID_BIT));
+
+    if (get_eflags() == flags) {
+        // no cpuid support
+        platform_debug_string(__FUNCTION__ ": failed");
+        halt();
+    }
+
+    put_eflags(flags);
+
+    eax = 1;
+    cpuid(&eax, &ebx, &ecx, &edx);
+
+    if ((edx & MANDATORY_CPU_FEATURES_MASK) != MANDATORY_CPU_FEATURES_MASK) {
+        platform_debug_string(__FUNCTION__ ": failed");
+        halt();
+    }
+
+    *EBDA_BYTE(EBDA_OFFSET_CPU_FAMILY) = eax & 0xf;
+    *EBDA_BYTE(EBDA_OFFSET_CPU_STEPPING) = (eax >> 8) & 0xf;
+
+    if ((edx & (1 << CPU_FEATURE_FPU_BIT))) {
+        *BDA_WORD(BDA_OFFSET_EQUIPMENT) |= (1 << BDA_EQUIPMENT_COPROCESSOR_BIT);
+    }
+}
+
+
 void init()
 {
     post(POST_CODE_INIT32);
@@ -1119,11 +1197,12 @@ void init()
     early_map_platform_io();
     init_platform();
     init_pci();
-    map_platform_io();
+    reset_platform_io();
 
     platform_debug_string("hello :)");
 
     init_bios_data_area();
+    init_cpu();
 
     //...
 
