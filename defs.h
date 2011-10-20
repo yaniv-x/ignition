@@ -27,10 +27,14 @@
 #ifndef _H_DEFS
 #define _H_DEFS
 
-#define IO_PORT_POST_CODE 0x80
+#define IO_PORT_PIC1 0x20
 #define IO_PORT_RTC_INDEX 0x70
 #define IO_PORT_RTC_DATA 0x71
+#define IO_PORT_POST_CODE 0x80
 #define IO_PORT_SYSCTRL 0x92
+#define IO_PORT_PIC2 0xa0
+#define IO_PORT_ELCR1 0x4d0
+#define IO_PORT_ELCR2 0x4d1
 #define IO_PORT_PCI_ADDRESS 0xcf8
 #define IO_PORT_PCI_DATA 0xcfc
 
@@ -46,6 +50,18 @@
 
 #define RTC_REG_B_DAYLIGHT_MASK (1 << 0)
 #define RTC_REG_B_24_HOUR_MASK (1 << 1)
+
+#define PIC_ICW1_MASK (1 << 4)
+#define PIC_ICW1_ICW4 (1 << 0)
+#define PIC_ICW4_8086_MODE (1 << 0)
+#define PIC1_ADDRESS 0x08
+#define PIC1_TIMER_PIN 0
+#define PIC1_KEYBOARD_PIN 1
+#define PIC1_SLAVE_PIN 2
+#define PIC2_ADDRESS 0x70
+#define PIC2_RTC_PIN 0
+#define PIC2_MOUSE_PIN 4
+#define PIC2_DMA_PIN 5
 
 #define POST_CODE_START16   1
 #define POST_CODE_INIT16    2

@@ -1249,7 +1249,25 @@ static inline void init_mouse()
 static inline void init_pic()
 {
     post(POST_CODE_PIC);
-    platform_debug_string(__FUNCTION__ ": implement me");
+
+    // reset master
+    outb(IO_PORT_PIC1, PIC_ICW1_MASK | PIC_ICW1_ICW4);
+    outb(IO_PORT_PIC1 + 1, PIC1_ADDRESS);
+    outb(IO_PORT_PIC1 + 1, (1 << PIC1_SLAVE_PIN));
+    outb(IO_PORT_PIC1 + 1, PIC_ICW4_8086_MODE);
+    outb(IO_PORT_PIC1 + 1, 0xff); // mask all
+    outb(IO_PORT_ELCR1, ~((1 << PIC1_TIMER_PIN) | (1 << PIC1_KEYBOARD_PIN) |
+                          (1 << PIC1_SLAVE_PIN)));
+
+    // reset slave
+    outb(IO_PORT_PIC2, PIC_ICW1_MASK | PIC_ICW1_ICW4);
+    outb(IO_PORT_PIC2 + 1, PIC2_ADDRESS);
+    outb(IO_PORT_PIC2 + 1, PIC1_SLAVE_PIN);
+    outb(IO_PORT_PIC2 + 1, PIC_ICW4_8086_MODE);
+    outb(IO_PORT_PIC2 + 1, 0xff); // mask all
+    outb(IO_PORT_ELCR2, ~((1 << PIC2_RTC_PIN) | (1 << PIC2_MOUSE_PIN) | (1 << PIC2_DMA_PIN)));
+
+    outb(IO_PORT_PIC1 + 1, ~0x04); // unmask slave
 }
 
 
