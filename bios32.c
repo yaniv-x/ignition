@@ -1187,6 +1187,72 @@ static inline void init_cpu()
 }
 
 
+static void rtc_write(uint index, uint8_t val)
+{
+    outb(IO_PORT_RTC_INDEX, index | RTC_NMI_MASK);
+    outb(IO_PORT_RTC_DATA, val);
+}
+
+
+static uint8_t rtc_read(uint index)
+{
+    outb(IO_PORT_RTC_INDEX, index | RTC_NMI_MASK);
+    return inb(IO_PORT_RTC_DATA);
+}
+
+
+static inline void init_rtc()
+{
+    post(POST_CODE_RTC);
+
+    // normal clock rate + clear periodic rate
+    rtc_write(0x0a, (RTC_REG_A_DIVIDER_NORMAL << RTC_REG_A_DIVIDER_SHIFT));
+
+    // activate clock + disable all timers and interrupts + BCD mode + preserv daylight
+    rtc_write(0x0b, (rtc_read(0x0b) & RTC_REG_B_DAYLIGHT_MASK) | RTC_REG_B_24_HOUR_MASK);
+
+    // on read rtc will reset reg c and d
+    rtc_read(0x0c);
+    rtc_read(0x0d);
+}
+
+
+static inline void init_mem()
+{
+    //bda::0x13
+    post(POST_CODE_MEM);
+    platform_debug_string(__FUNCTION__ ": implement me");
+}
+
+
+static inline void init_pit()
+{
+    post(POST_CODE_PIT);
+    platform_debug_string(__FUNCTION__ ": implement me");
+}
+
+
+static inline void init_keyboard()
+{
+    post(POST_CODE_KEYBOARD);
+    platform_debug_string(__FUNCTION__ ": implement me");
+}
+
+
+static inline void init_mouse()
+{
+    post(POST_CODE_MOUSE);
+    platform_debug_string(__FUNCTION__ ": implement me");
+}
+
+
+static inline void init_pic()
+{
+    post(POST_CODE_PIC);
+    platform_debug_string(__FUNCTION__ ": implement me");
+}
+
+
 void init()
 {
     post(POST_CODE_INIT32);
@@ -1204,7 +1270,12 @@ void init()
     init_bios_data_area();
     init_cpu();
 
-    //...
+    init_rtc();
+    init_mem();
+    init_keyboard();
+    init_mouse();
+    init_pit();
+    init_pic();
 
     platform_debug_string(__FUNCTION__ ": halting...");
 

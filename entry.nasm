@@ -39,6 +39,8 @@ global _call32
 
 
 entry:
+    mov al, RTC_NMI_MASK
+    out IO_PORT_RTC_INDEX, al ; disable NMI
     cli
     mov al, POST_CODE_START16
     mov dx, IO_PORT_POST_CODE
