@@ -28,6 +28,11 @@
 #define _H_DEFS
 
 #define IO_PORT_PIC1 0x20
+#define IO_PORT_TIMER_0 0x40
+#define IO_PORT_TIMER_1 0x41
+#define IO_PORT_TIMER_2 0x42
+#define IO_PORT_TIMER_CONTROL 0x43
+#define IO_PORT_MISC 0x61
 #define IO_PORT_RTC_INDEX 0x70
 #define IO_PORT_RTC_DATA 0x71
 #define IO_PORT_POST_CODE 0x80
@@ -62,6 +67,10 @@
 #define PIC2_RTC_PIN 0
 #define PIC2_MOUSE_PIN 4
 #define PIC2_DMA_PIN 5
+
+#define PIT_SELECTOR_SHIFT 6
+#define PIT_RW_SHIFT 4
+#define PIT_MODE_SHIFT 1
 
 #define POST_CODE_START16   1
 #define POST_CODE_INIT16    2

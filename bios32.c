@@ -1228,7 +1228,27 @@ static inline void init_mem()
 static inline void init_pit()
 {
     post(POST_CODE_PIT);
-    platform_debug_string(__FUNCTION__ ": implement me");
+
+    outb(IO_PORT_MISC, 0); // timer 2 gate off + disable speaker
+
+    //set sys timer (0) mode 2 tick == 54.9ms
+    outb(IO_PORT_TIMER_CONTROL,
+         (0 << PIT_SELECTOR_SHIFT) | (3 << PIT_RW_SHIFT) | (2 << PIT_MODE_SHIFT));
+    outb(IO_PORT_TIMER_0, 0);
+    outb(IO_PORT_TIMER_0, 0);
+
+    //set dram refresh timer (1) mode 2 tick == 15us
+    //nox imp update the timer on read so no unnecessary horse power is consumed
+    outb(IO_PORT_TIMER_CONTROL,
+         (1 << PIT_SELECTOR_SHIFT) | (3 << PIT_RW_SHIFT) | (2 << PIT_MODE_SHIFT));
+    outb(IO_PORT_TIMER_1, 18);
+    outb(IO_PORT_TIMER_1, 0);
+
+    //set general use timer (2) mode 3 18.207 ticks/sec or tick == 54.9ms
+    outb(IO_PORT_TIMER_CONTROL,
+         (2 << PIT_SELECTOR_SHIFT) | (3 << PIT_RW_SHIFT) | (3 << PIT_MODE_SHIFT));
+    outb(IO_PORT_TIMER_2, 0);
+    outb(IO_PORT_TIMER_2, 0);
 }
 
 
