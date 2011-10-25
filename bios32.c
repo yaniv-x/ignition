@@ -29,8 +29,12 @@
 
 #include "common.c"
 
-
-#define ASSERT(x) if (!(x)) { halt();}
+#define ASSERT(x) if (!(x)) {                                                       \
+    if (globals->platform_ram) {                                                    \
+        platform_debug_string(__FUNCTION__ ": ASSERT("#x") failed. halting...");    \
+    }                                                                               \
+    halt();                                                                         \
+}
 
 #define ALIGN(a, b) (((a) + ((b) - 1)) & ~((b) - 1))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -121,6 +125,7 @@ enum {
 #define NOX_ADDRESS_LINES 52
 
 #define EXP_ROM_BAR PCI_NUM_BARS
+#define MID_RAM_RANGE_ALIGMENT_MB 512
 
 enum {
     PLATFORM_IO_LOCK = 0x00,
@@ -140,6 +145,11 @@ enum {
     PLATFORM_REG_BELOW_4G_PAGES,
     PLATFORM_REG_BELOW_4G_USED_PAGES,
     PLATFORM_REG_ABOVE_4G_PAGES,
+};
+
+enum {
+    PLATFORM_ERR_INVALID = 0,
+    PLATFORM_ERR_INVALID_ARG,
 };
 
 
@@ -186,6 +196,9 @@ typedef struct Globals {
     uint32_t below_4g_pages;
     uint32_t below_4g_used_pages;
     uint32_t above_4g_pages;
+    uint32_t pci32_hole_start;
+    uint32_t pci32_hole_end;
+    uint64_t pci64_hole_start;
     PCIDevDescriptor* activation_list;
     PCIBarResouce* io_bars;
     PCIBarResouce* mem_bars;
@@ -197,13 +210,15 @@ typedef struct Globals {
     uint16_t platform_io;
     address_t platform_ram;
     uint32_t flags;
+    uint8_t address_lines;
 } Globals;
 
 
-static Globals* globals = (Globals*)0x00000500;
 static uint8_t* bda = (uint8_t*)BIOS_DATA_AREA_ADDRESS;
 static uint8_t* ebda = (uint8_t*)BIOS_EXTENDED_DATA_AREA_ADDRESS;
+static Globals* globals = (Globals*)(BIOS_EXTENDED_DATA_AREA_ADDRESS + EBDA_PRIVATE_START);
 
+static void platform_debug_string(const char* str);
 
 static inline void post_and_halt(uint8_t code)
 {
@@ -248,6 +263,47 @@ static void cpuid(uint32_t* a, uint32_t* b, uint32_t* c, uint32_t* d)
         mov [esi], ecx
         mov esi, d
         mov [esi], edx
+    }
+}
+
+
+static uint32_t get_cr0()
+{
+    uint32_t r;
+
+    __asm {
+        mov eax, cr0
+        mov r, eax
+    }
+
+    return r;
+}
+
+
+static uint64_t read_msr(uint32_t index)
+{
+    uint32_t h, l;
+    __asm {
+        mov ecx, index
+        rdmsr
+        mov h, edx
+        mov l, eax
+    }
+
+    return (uint64_t)h << 32 | l;
+}
+
+
+static void write_msr(uint32_t index, uint64_t val)
+{
+    uint32_t l = val;
+    uint32_t h = val >> 32;
+
+    __asm {
+        mov ecx, index
+        mov edx, h
+        mov eax, l
+        wrmsr
     }
 }
 
@@ -438,7 +494,7 @@ static void format_str(char* dest, const char* format, uint32_t len, ...)
 
             if (length == FORMAT_LENGTH_LL) {
                 val = *(uint64_t*)args;
-                val += 2;
+                args += 2;
             } else {
                 val = *args++;
             }
@@ -571,7 +627,13 @@ static void detect_platform()
 }
 
 
-void platform_debug_string(const char* str)
+static void platform_notify_debug_string()
+{
+    outb(globals->platform_io + PLATFORM_IO_LOG, 0);
+}
+
+
+static void platform_debug_string(const char* str)
 {
     if (!globals->platform_ram) {
         return;
@@ -899,9 +961,25 @@ static inline void early_map_platform_io()
 }
 
 
+static uint64_t to_power_of_two(uint64_t val)
+{
+    int msb = find_msb_32(val);
+    uint64_t r;
+
+    if (msb < 0) {
+        return 0;
+    }
+
+    r = 1 << msb;
+
+    return (r == val) ? r : (r << 1);
+}
+
+
 static void init_platform()
 {
     uint8_t lock = inb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_LOCK);
+    uint64_t below_4g_sum;
 
     if (lock) {
         post(POST_CODE_LOCKED);
@@ -924,6 +1002,25 @@ static void init_platform()
 
     outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_INDEX, PLATFORM_REG_ABOVE_4G_PAGES);
     globals->above_4g_pages  = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_DATA);
+
+    below_4g_sum = globals->above_1m_pages + (MB >> PAGE_SHIFT);
+    below_4g_sum = ALIGN(below_4g_sum, (MID_RAM_RANGE_ALIGMENT_MB * MB) >> PAGE_SHIFT);
+    below_4g_sum += to_power_of_two(globals->below_4g_pages);
+
+    if (globals->below_1m_used_pages > (MB - ((640 + 128) * KB) >> PAGE_SHIFT) ||
+                                    globals->below_4g_used_pages > globals->below_4g_pages ||
+                                    below_4g_sum > 4 * (GB >> PAGE_SHIFT)) {
+        outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, PLATFORM_ERR_INVALID_ARG);
+        halt();
+    }
+
+    globals->pci32_hole_start = (globals->above_1m_pages << PAGE_SHIFT) + MB;
+    globals->pci32_hole_start = ALIGN(globals->pci32_hole_start, MID_RAM_RANGE_ALIGMENT_MB * MB);
+    globals->pci32_hole_end = (GB >> PAGE_SHIFT) * 4 - to_power_of_two(globals->below_4g_pages);
+    globals->pci32_hole_end <<= PAGE_SHIFT;
+
+    globals->pci64_hole_start = 4ULL * GB + ((uint64_t)globals->above_4g_pages << PAGE_SHIFT);
+    globals->pci64_hole_start = to_power_of_two(globals->pci64_hole_start);
 }
 
 
@@ -963,8 +1060,8 @@ static inline PCIBarResouce* pci_first_unmapped(PCIBarResouce* bar_list)
 
 static int pci_asign_mem32(PCIBarResouce* bar_list)
 {
-    uint32_t pci_hole_start = globals->above_1m_pages * PAGE_SIZE + MB;
-    uint32_t pci_end_address = ((1 << (32 - PAGE_SHIFT)) - globals->below_4g_pages) * PAGE_SIZE;
+    uint32_t pci_hole_start = globals->pci32_hole_start;
+    uint32_t pci_end_address = globals->pci32_hole_end;
     PCIBarResouce* item;
     uint32_t alloc_start;
     uint32_t address;
@@ -1023,9 +1120,8 @@ static void pci_asign_mem64()
         return;
     }
 
-    pci_hole_start = (uint64_t)globals->above_4g_pages << PAGE_SHIFT;
-    pci_hole_start += 1ULL << 32;
-    pci_hole_end = 1ULL << NOX_ADDRESS_LINES;
+    pci_hole_start = globals->pci64_hole_start;
+    pci_hole_end = 1ULL << globals->address_lines;
 
     if (item->size > pci_hole_end - pci_hole_start) {
         post_and_halt(POST_CODE_PCI_OOM);
@@ -1123,10 +1219,16 @@ static void enable_a20()
 
 static void init_globals()
 {
+    uint32_t eax, ebx, ecx, edx;
+
     mem_set(globals, 0, sizeof(*globals));
     globals->alloc_start = DUMB_ALLOC_START;
     globals->alloc_end = DUMB_ALLOC_START + DUMB_ALLOC_SIZE;
     globals->alloc_pos = globals->alloc_start;
+
+    eax = 0x80000008;
+    cpuid(&eax, &ebx, &ecx, &edx);
+    globals->address_lines = eax & 0xff;
 }
 
 
@@ -1142,7 +1244,7 @@ static inline void init_bios_data_area()
     post(POST_CODE_BDA);
 
     mem_reset(bda, BIOS_DATA_AREA_SIZE);
-    mem_reset(ebda, BIOS_EXTENDED_DATA_AREA_KB * KB);
+    mem_reset(ebda, EBDA_PRIVATE_START);
 
     *BDA_WORD(BDA_OFFSET_EBDA) = BIOS_EXTENDED_DATA_AREA_ADDRESS >> 4;
     *EBDA_BYTE(EBDA_OFFSET_SIZE) = BIOS_EXTENDED_DATA_AREA_KB;
@@ -1184,6 +1286,13 @@ static inline void init_cpu()
     if ((edx & (1 << CPU_FEATURE_FPU_BIT))) {
         *BDA_WORD(BDA_OFFSET_EQUIPMENT) |= (1 << BDA_EQUIPMENT_COPROCESSOR_BIT);
     }
+
+    *EBDA_BYTE(EBDA_OFFSET_CACHE_CONTROL) = (get_cr0() & CR0_CD) ? 1 : 0;
+
+    if (globals->address_lines > NOX_ADDRESS_LINES) {
+        platform_debug_string(__FUNCTION__ ": address lines conflict");
+        halt();
+    }
 }
 
 
@@ -1211,17 +1320,131 @@ static inline void init_rtc()
     // activate clock + disable all timers and interrupts + BCD mode + preserv daylight
     rtc_write(0x0b, (rtc_read(0x0b) & RTC_REG_B_DAYLIGHT_MASK) | RTC_REG_B_24_HOUR_MASK);
 
-    // on read rtc will reset reg c and d
+    // rtc regs c and d will be reset on read
     rtc_read(0x0c);
     rtc_read(0x0d);
+
+    // bios periodic timer rate is 1024hz
+}
+
+
+static void set_mttr_var_range(uint slot, uint8_t type, uint64_t address, uint64_t size)
+{
+    uint bits = globals->address_lines;
+    uint msr_address;
+    uint64_t mask;
+
+    mask = ~(size - 1) & ((1ULL << bits) - 1);
+    msr_address = MSR_MTRR_PHYS_BASE_0 + slot * 2;
+
+    format_str((char*)globals->platform_ram,
+               "mttr[%u] base 0x%llx mask 0x%llx size %llu%s",
+               PLATFORM_LOG_BUFF_SIZE,
+               slot,
+               address | type,
+               mask | MTRR_PHYS_MASK_VALID,
+               (size < MB) ? size / KB : size / MB,
+               (size < MB) ? "KB" : "MB");
+    platform_notify_debug_string();
+    write_msr(msr_address, address | type);
+    write_msr(msr_address + 1, mask | MTRR_PHYS_MASK_VALID);
+}
+
+
+static void setup_mttr()
+{
+    uint64_t mtrr_cap;
+    uint64_t mtrr_default;
+    uint64_t size;
+    uint mtrr_var_count;
+    uint slot = 0;
+    uint i;
+
+    mtrr_cap = read_msr(MSR_MTRR_CAP);
+
+    if (!(mtrr_cap & MTRR_CAP_FIX_MASK) || !(mtrr_cap & MTRR_CAP_WC_MASK)
+        || (mtrr_var_count = (mtrr_cap & MTRR_CAP_COUNT_MASK)) < MTRR_MAX_VAR) {
+        platform_debug_string(__FUNCTION__ ": unsuported MTRR");
+        halt();
+    }
+
+    mtrr_default = MTRR_DEFAULT_FIXED_ENABLE_MASK | MTRR_DEFAULT_ENABLE_MASK; // default type is UC
+
+    // base mem type is WB
+    write_msr(MSR_MTRR_FIX_64_0000, 0x0606060606060606ULL);
+    write_msr(MSR_MTRR_FIX_16_8000, 0x0606060606060606ULL);
+
+    // video frame buf type is UC
+    write_msr(MSR_MTRR_FIX_16_A000, 0);
+
+    for (i = MSR_MTRR_FIX_4_C000; i <= MSR_MTRR_FIX_4_F800; i++) {
+        // bios and expention roms area WP (as if allowing modify rejection)
+        write_msr(i, 0x0505050505050505ULL);
+    }
+
+    if (globals->above_1m_pages) {
+        uint32_t bytes = (globals->above_1m_pages << PAGE_SHIFT) + MB;
+        uint64_t address = 0;
+        int msb;
+
+        while (bytes) {
+            if (slot == mtrr_var_count) {
+                platform_debug_string(__FUNCTION__ ": out of var slot");
+                halt();
+            }
+
+            if (bytes < MID_RAM_RANGE_ALIGMENT_MB * MB) {
+                bytes = to_power_of_two(bytes);
+            }
+
+            msb = find_msb_32(bytes);
+            size = 1U << msb;
+
+            set_mttr_var_range(slot++, 6, address, size);
+            bytes -= size;
+            address += size;
+        }
+    }
+
+    if (mtrr_var_count - slot < (globals->above_4g_pages ? 2 : 1)) {
+        platform_debug_string(__FUNCTION__ ": out of var slot");
+        halt();
+    }
+
+    size = to_power_of_two(globals->below_4g_used_pages) << PAGE_SHIFT;
+    // high bios type is WB (maybe WP)
+    set_mttr_var_range(slot++, 6, 4ULL * GB - size, size);
+
+    if (globals->above_4g_pages) {
+        size = to_power_of_two(globals->above_4g_pages) << PAGE_SHIFT;
+        // ram above 4g type is WB
+        set_mttr_var_range(slot, 6, 4ULL * GB, size);
+    }
+
+    write_msr(MSR_MTRR_DEFAULT, MTRR_DEFAULT_FIXED_ENABLE_MASK | MTRR_DEFAULT_ENABLE_MASK);
 }
 
 
 static inline void init_mem()
 {
-    //bda::0x13
+    uint32_t extended_memory_kb;
+
     post(POST_CODE_MEM);
-    platform_debug_string(__FUNCTION__ ": implement me");
+
+    *BDA_WORD(BDA_OFFSET_MAIN_MEM_SIZE) = BASE_MEMORY_SIZE_KB - BIOS_EXTENDED_DATA_AREA_KB;
+
+    //640k base memory
+    rtc_write(0x15, BASE_MEMORY_SIZE_KB);
+    rtc_write(0x16, BASE_MEMORY_SIZE_KB >> 8);
+
+    //extended memory
+    extended_memory_kb = MIN(globals->above_1m_pages << 2, 63 * KB);
+    rtc_write(0x17, extended_memory_kb);
+    rtc_write(0x18, extended_memory_kb >> 8);
+    rtc_write(0x30, extended_memory_kb);
+    rtc_write(0x31, extended_memory_kb >> 8);
+
+    setup_mttr();
 }
 
 
@@ -1402,6 +1625,8 @@ static inline void init_mouse()
     command_byte = kbd_receive_data();
     outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_WRITE_COMMAND_BYTE);
     outb(IO_PORT_KBD_DATA, command_byte | KBDCTRL_COMMAND_BYTE_IRQ12_MASK);
+
+    *BDA_WORD(BDA_OFFSET_EQUIPMENT) |= (1 << BDA_EQUIPMENT_MOUSE_BIT);
 }
 
 
@@ -1443,6 +1668,8 @@ void init()
     reset_platform_io();
 
     platform_debug_string("hello :)");
+
+    ASSERT(sizeof(Globals) <= BIOS_EXTENDED_DATA_AREA_KB * KB - EBDA_PRIVATE_START);
 
     init_bios_data_area();
     init_cpu();

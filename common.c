@@ -97,6 +97,20 @@ static int find_lsb_32(uint32_t val)
 }
 
 
+static int find_msb_32(uint32_t val)
+{
+    int i;
+
+    for (i = 31; i >=0; i--) {
+        if (val & (1 << i)) {
+            return i;
+        }
+    }
+
+    return i;
+}
+
+
 static int find_lsb_64(uint64_t val)
 {
     int i;

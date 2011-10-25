@@ -27,6 +27,19 @@
 #ifndef _H_DEFS
 #define _H_DEFS
 
+#define NULL 0
+#define EOS 0
+
+#define PAGE_SHIFT 12
+#define PAGE_SIZE (1 << PAGE_SHIFT)
+
+#define TRUE 1
+#define FALSE 0
+
+#define KB 1024
+#define MB (1024 * KB)
+#define GB (1024 * MB)
+
 #define IO_PORT_PIC1 0x20
 #define IO_PORT_TIMER_0 0x40
 #define IO_PORT_TIMER_1 0x41
@@ -138,12 +151,18 @@
 
 #define BDA_OFFSET_EBDA 0x0e
 #define BDA_OFFSET_EQUIPMENT 0x10
+#define BDA_OFFSET_MAIN_MEM_SIZE 0x13
 
 #define BDA_EQUIPMENT_COPROCESSOR_BIT 1
+#define BDA_EQUIPMENT_MOUSE_BIT 2
 
 #define EBDA_OFFSET_SIZE 0
+#define EBDA_OFFSET_CACHE_CONTROL 0x68
 #define EBDA_OFFSET_CPU_FAMILY 0xee
 #define EBDA_OFFSET_CPU_STEPPING 0xef
+#define EBDA_PRIVATE_START 0x140 // the last known used offset according to "The Unocumented PC"
+                                 // is dword @ 11dh. leaving some space in order to be on the
+                                 // safe side.
 
 #define CPU_FLAGS_ID_BIT 21
 
@@ -162,20 +181,8 @@
     (1 << CPU_FEATURE_MTRR_BIT)         \
 )
 
-#define NULL 0
-#define EOS 0
-
-#define PAGE_SHIFT 12
-#define PAGE_SIZE (1 << PAGE_SHIFT)
-
-#define KB 1024
-#define MB (1024 * KB)
-#define GB (1024 * MB)
-
-#define TRUE 1
-#define FALSE 0
-
 #define CR0_PE (1 << 0)
+#define CR0_CD (1 << 30)
 
 #define SD_CS (0x18 << 8)
 #define SD_DS (0x12 << 8)
@@ -189,6 +196,49 @@
 
 #define PROTECTED_START_ADDRESS ((1024 - 128) * 1024)
 #define PROTECTED_STACK_BASE (1024 * 256)
+
+#define MSR_MTRR_CAP 0xfe
+#define MSR_MTRR_PHYS_BASE_0 0x200
+#define MSR_MTRR_PHYS_MASK_0 0x201
+#define MSR_MTRR_PHYS_BASE_1 0x202
+#define MSR_MTRR_PHYS_MASK_1 0x203
+#define MSR_MTRR_PHYS_BASE_2 0x204
+#define MSR_MTRR_PHYS_MASK_2 0x205
+#define MSR_MTRR_PHYS_BASE_3 0x206
+#define MSR_MTRR_PHYS_MASK_3 0x207
+#define MSR_MTRR_PHYS_BASE_4 0x208
+#define MSR_MTRR_PHYS_MASK_4 0x209
+#define MSR_MTRR_PHYS_BASE_5 0x20a
+#define MSR_MTRR_PHYS_MASK_5 0x20b
+#define MSR_MTRR_PHYS_BASE_6 0x20c
+#define MSR_MTRR_PHYS_MASK_6 0x20d
+#define MSR_MTRR_PHYS_BASE_7 0x20e
+#define MSR_MTRR_PHYS_MASK_7 0x20f
+#define MSR_MTRR_FIX_64_0000 0x250
+#define MSR_MTRR_FIX_16_8000 0x258
+#define MSR_MTRR_FIX_16_A000 0x259
+#define MSR_MTRR_FIX_4_C000 0x268
+#define MSR_MTRR_FIX_4_C800 0x269
+#define MSR_MTRR_FIX_4_D000 0x26a
+#define MSR_MTRR_FIX_4_D800 0x26b
+#define MSR_MTRR_FIX_4_E000 0x26c
+#define MSR_MTRR_FIX_4_E800 0x26d
+#define MSR_MTRR_FIX_4_F000 0x26e
+#define MSR_MTRR_FIX_4_F800 0x26f
+#define MSR_MTRR_DEFAULT 0x2ff
+
+
+#define MTRR_MAX_VAR 8
+
+#define MTRR_CAP_FIX_MASK (1 << 8)
+#define MTRR_CAP_WC_MASK (1 << 10)
+#define MTRR_CAP_COUNT_MASK (MTRR_CAP_FIX_MASK - 1)
+
+#define MTRR_DEFAULT_ENABLE_MASK (1 << 11)
+#define MTRR_DEFAULT_FIXED_ENABLE_MASK (1 << 10)
+#define MTRR_DEFAULT_TYPE_MASK ((1 << 8) - 1)
+
+#define MTRR_PHYS_MASK_VALID (1 << 11)
 
 #endif
 

@@ -6,7 +6,7 @@ NASM=NASM
 
 %.inc : %.h
 	tr -t '#' '%' < $< | sed s/^'\/''\*'/"%if 0"/ | sed s/^'\*''\/'/"%endif"/ > $@.tmp
-	sed s/^"\/\/"/";"/ < $@.tmp > $@
+	sed s/[.]*"\/\/"/";"/ < $@.tmp > $@
 	rm $@.tmp
 
 %.o : %.nasm

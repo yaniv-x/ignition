@@ -255,3 +255,28 @@ __U8D:
         pop     ebp             ; ...
         ret                     ; and return
 
+
+; copy from watcom i8m386.asm
+global __U8M
+global __I8M
+__U8M:
+__I8M:
+        test    edx,edx         ; first check for easy (hiwords == 0) case
+        jnz     .L1
+        test    ecx,ecx
+        jnz     .L1
+        mul     ebx
+        ret
+
+.L1:    push    eax             ; save M1.l
+        push    edx             ; save M1.h
+        mul     ecx             ; calc M1.l * M2.h -> eax
+        mov     ecx,eax         ; save M1.l * M2.h in ecx
+        pop     eax             ; get  M1.h in eax
+        mul     ebx             ; calc M1.h * M2.l -> eax
+        add     ecx,eax         ; add  above to previous total
+        pop     eax             ; get  M1.l in eax
+        mul     ebx             ; calc M1.l * M2.l -> edx:eax
+        add     edx,ecx         ; add previous hiword contribs to hiword
+        ret                     ; and return!!!
+
