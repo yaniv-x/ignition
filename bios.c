@@ -33,7 +33,22 @@
 
 void call32(void);
 void unhandled_interrupt(void);
-
+void unhandled_irq0(void);
+void unhandled_irq1(void);
+void unhandled_irq2(void);
+void unhandled_irq3(void);
+void unhandled_irq4(void);
+void unhandled_irq5(void);
+void unhandled_irq6(void);
+void unhandled_irq7(void);
+void unhandled_irq8(void);
+void unhandled_irq9(void);
+void unhandled_irq10(void);
+void unhandled_irq11(void);
+void unhandled_irq12(void);
+void unhandled_irq13(void);
+void unhandled_irq14(void);
+void unhandled_irq15(void);
 
 #define FUNC_OFFSET(function) (uint16_t)(function)
 
@@ -125,35 +140,6 @@ static void write_byte(uint16_t seg, uint16_t offset, uint8_t val)
 }
 
 
-typedef _Packed struct IntVector {
-    uint16_t offset;
-    uint16_t seg;
-} IntVector;
-
-
-static void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
-{
-    IntVector* entry = NULL;
-    uint16_t prev_seg;
-
-    entry += index;
-    prev_seg = set_ds(0);
-    entry->seg = seg;
-    entry->offset = offset;
-    set_ds(prev_seg);
-}
-
-
-static void init_int_vector()
-{
-    uint8_t i = 0;
-
-    do {
-        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
-    } while (++i);
-}
-
-
 static void mem_set(uint16_t seg, uint16_t offset, uint8_t patern, uint16_t n)
 {
     uint8_t* now = (uint8_t*)offset;
@@ -170,6 +156,12 @@ static void mem_set(uint16_t seg, uint16_t offset, uint8_t patern, uint16_t n)
 static void mem_reset(uint16_t seg, uint16_t offset, uint16_t n)
 {
     mem_set(seg, offset, 0, n);
+}
+
+
+static void bda_write_byte(uint16_t offset, uint8_t val)
+{
+    write_byte(BIOS_DATA_AREA_ADDRESS >> 4, offset, val);
 }
 
 
@@ -204,14 +196,76 @@ static inline void init_bios_data_area()
 }
 
 
+typedef _Packed struct IntVector {
+    uint16_t offset;
+    uint16_t seg;
+} IntVector;
+
+
+static void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
+{
+    IntVector* entry = NULL;
+    uint16_t prev_seg;
+
+    entry += index;
+    prev_seg = set_ds(0);
+    entry->seg = seg;
+    entry->offset = offset;
+    set_ds(prev_seg);
+}
+
+
+void on_unhandled_irq(uint16_t irq)
+{
+    if (irq > 7) irq = 2;
+    bda_write_byte(BDA_OFFSET_LAST_IRQ, 1 << irq);
+}
+
+
+static void init_int_vector()
+{
+    uint i;
+
+    for (i = 0; i < 0x08; i++) {
+        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
+    }
+
+    set_int_vec(0x08, get_cs(), FUNC_OFFSET(unhandled_irq0));
+    set_int_vec(0x09, get_cs(), FUNC_OFFSET(unhandled_irq1));
+    set_int_vec(0x0a, get_cs(), FUNC_OFFSET(unhandled_irq2));
+    set_int_vec(0x0b, get_cs(), FUNC_OFFSET(unhandled_irq3));
+    set_int_vec(0x0c, get_cs(), FUNC_OFFSET(unhandled_irq4));
+    set_int_vec(0x0d, get_cs(), FUNC_OFFSET(unhandled_irq5));
+    set_int_vec(0x0e, get_cs(), FUNC_OFFSET(unhandled_irq6));
+    set_int_vec(0x0f, get_cs(), FUNC_OFFSET(unhandled_irq7));
+
+    for (i = 0x10; i < 0x70; i++) {
+        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
+    }
+
+    set_int_vec(0x70, get_cs(), FUNC_OFFSET(unhandled_irq8));
+    set_int_vec(0x71, get_cs(), FUNC_OFFSET(unhandled_irq9));
+    set_int_vec(0x72, get_cs(), FUNC_OFFSET(unhandled_irq10));
+    set_int_vec(0x72, get_cs(), FUNC_OFFSET(unhandled_irq11));
+    set_int_vec(0x74, get_cs(), FUNC_OFFSET(unhandled_irq12));
+    set_int_vec(0x75, get_cs(), FUNC_OFFSET(unhandled_irq13));
+    set_int_vec(0x76, get_cs(), FUNC_OFFSET(unhandled_irq14));
+    set_int_vec(0x77, get_cs(), FUNC_OFFSET(unhandled_irq15));
+
+    for (i = 0x78; i < 0x100; i++) {
+        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
+    }
+}
+
+
 void init()
 {
     post(POST_CODE_INIT16);
     init_bios_data_area();
-    init_int_vector();
 
     call32();
 
+    init_int_vector();
     for (;;) post(POST_CODE_TMP);
 
     restart();

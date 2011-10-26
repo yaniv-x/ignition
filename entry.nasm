@@ -31,7 +31,8 @@ group DGROUP _TEXT
 %include "defs.inc"
 
 
-extern  _init
+extern _init
+extern _on_unhandled_irq
 
 
 global _unhandled_interrupt
@@ -98,6 +99,30 @@ entry:
     popa
     ret
 
+%macro UNHANDLE_IRQ 1
+global _unhandled_irq%1
+_unhandled_irq%1:
+    push %1
+    call _on_unhandled_irq
+    iret
+%endmacro
+
+UNHANDLE_IRQ 0
+UNHANDLE_IRQ 1
+UNHANDLE_IRQ 2
+UNHANDLE_IRQ 3
+UNHANDLE_IRQ 4
+UNHANDLE_IRQ 5
+UNHANDLE_IRQ 6
+UNHANDLE_IRQ 7
+UNHANDLE_IRQ 8
+UNHANDLE_IRQ 9
+UNHANDLE_IRQ 10
+UNHANDLE_IRQ 11
+UNHANDLE_IRQ 12
+UNHANDLE_IRQ 13
+UNHANDLE_IRQ 14
+UNHANDLE_IRQ 15
 
 _unhandled_interrupt:
     iret
