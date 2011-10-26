@@ -26,8 +26,14 @@
 
 #include "types.h"
 #include "defs.h"
+#include "nox.h"
 
 #include "common.c"
+
+
+#define OFFSET_OF(type, member) ((uint32_t)&((type*)0)->member)
+
+#define globals get_ebda_private()
 
 #define ASSERT(x) if (!(x)) {                                                       \
     if (globals->platform_ram) {                                                    \
@@ -120,47 +126,15 @@ enum {
 #define PCI_DISPLAY_SUBCLASS_VGA 0x00
 #define PCI_VGA_PROGIF_VGACOMPAT 0x00
 
-#define NOX_PCI_VENDOR_ID 0x1aaa
-#define NOX_PCI_DEV_ID_HOST_BRIDGE 0x0001
-#define NOX_PCI_DEV_HOST_BRIDGE_REV 1
-#define NOX_ADDRESS_LINES 52
-
 #define EXP_ROM_BAR PCI_NUM_BARS
 #define MID_RAM_RANGE_ALIGMENT_MB 512
-
-enum {
-    PLATFORM_IO_LOCK = 0x00,
-    PLATFORM_IO_INDEX = 0x01,
-    PLATFORM_IO_LOG = 0x02,
-    PLATFORM_IO_ERROR = 0x04,
-    PLATFORM_IO_DATA = 0x08,
-    PLATFORM_IO_END = 0x0c,
-
-    PLATFORM_MEM_PAGES = 1,
-    PLATFORM_LOG_BUFF_SIZE = 1024,
-};
-
-enum {
-    PLATFORM_REG_BELOW_1M_USED_PAGES,
-    PLATFORM_REG_ABOVE_1M_PAGES,
-    PLATFORM_REG_BELOW_4G_PAGES,
-    PLATFORM_REG_BELOW_4G_USED_PAGES,
-    PLATFORM_REG_ABOVE_4G_PAGES,
-};
-
-enum {
-    PLATFORM_ERR_INVALID = 0,
-    PLATFORM_ERR_INVALID_ARG,
-    PLATFORM_ERR_UNEXPECTED,
-};
-
 
 #define FLAGS_IDE_RES_WAS_CLAIMED (1 << 0)
 #define FLAGS_VGA_RES_WAS_CLAIMED (1 << 1)
 
 
 #define BDA_WORD(offset) ((uint16_t*)(bda + (offset)))
-#define EBDA_BYTE(offset) ((uint8_t*)(ebda + (offset)))
+#define EBDA_BYTE(offset) (get_ebda()->public + (offset))
 
 
 #define DUMB_ALLOC_ALIGNMENT 4
@@ -192,63 +166,15 @@ typedef struct PCIDeviceType {
 } PCIDeviceType;
 
 
-typedef _Packed struct Globals {
-    uint32_t below_1m_used_pages;
-    uint32_t above_1m_pages;
-    uint32_t below_4g_pages;
-    uint32_t below_4g_used_pages;
-    uint32_t above_4g_pages;
-    uint32_t pci32_hole_start;
-    uint32_t pci32_hole_end;
-    uint64_t pci64_hole_start;
-    PCIDevDescriptor* activation_list;
-    PCIBarResouce* io_bars;
-    PCIBarResouce* mem_bars;
-    PCIBarResouce* mem32_bars;
-    PCIBarResouce* mem64_bars;
-    uint32_t alloc_start;
-    uint32_t alloc_pos;
-    uint32_t alloc_end;
-    uint16_t platform_io;
-    address_t platform_ram;
-    uint32_t flags;
-    uint8_t address_lines;
-} Globals;
-
-
 static uint8_t* bda = (uint8_t*)BIOS_DATA_AREA_ADDRESS;
-static uint8_t* ebda = (uint8_t*)BIOS_EXTENDED_DATA_AREA_ADDRESS;
-static Globals* globals = (Globals*)(BIOS_EXTENDED_DATA_AREA_ADDRESS + EBDA_PRIVATE_GLOBALS);
 
 static void platform_debug_string(const char* str);
+
 
 static inline void post_and_halt(uint8_t code)
 {
     post(code);
     halt();
-}
-
-
-static inline void outd(uint16_t port, uint32_t val)
-{
-    _asm {
-        mov dx, port
-        mov eax, val
-        out dx, eax
-    }
-}
-
-static inline uint32_t ind(uint16_t port)
-{
-    uint32_t val;
-
-    _asm {
-        mov dx, port
-        in eax, dx
-        mov val, eax
-    }
-
-    return val;
 }
 
 
@@ -542,6 +468,20 @@ static void format_str(char* dest, const char* format, uint32_t len, ...)
 }
 
 
+static EBDA* get_ebda()
+{
+    uint32_t seg = *(uint16_t*)(bda + BDA_OFFSET_EBDA);
+    EBDA* ebda = (EBDA*)(seg << 4);
+    return ebda;
+}
+
+
+static EBDAPrivate* get_ebda_private()
+{
+    return &get_ebda()->private;
+}
+
+
 static inline uint32_t pci_config_address(uint32_t bus, uint32_t device, uint32_t index)
 {
     uint32_t function = 0;
@@ -744,7 +684,7 @@ static void pci_add_io_bar(uint32_t bus, uint32_t device, uint bar, uint32_t siz
         post_and_halt(POST_CODE_BAR_SIZE_FAILED);
     }
 
-    pci_add_bar(&globals->io_bars, bus, device, bar, size);
+    pci_add_bar((PCIBarResouce**)&globals->io_bars, bus, device, bar, size);
 }
 
 
@@ -755,8 +695,8 @@ static void pci_add_32bit_bar(uint32_t bus, uint32_t device, uint bar, uint32_t 
     }
 
     size = MAX(size, PAGE_SIZE);
-    pci_add_bar(&globals->mem_bars, bus, device, bar, size);
-    pci_add_bar(&globals->mem32_bars, bus, device, bar, size);
+    pci_add_bar((PCIBarResouce**)&globals->mem_bars, bus, device, bar, size);
+    pci_add_bar((PCIBarResouce**)&globals->mem32_bars, bus, device, bar, size);
 }
 
 
@@ -767,8 +707,8 @@ static void pci_add_64bit_bar(uint32_t bus, uint32_t device, uint bar, uint64_t 
     }
 
     size = MAX(size, PAGE_SIZE);
-    pci_add_bar(&globals->mem_bars, bus, device, bar, size);
-    pci_add_bar(&globals->mem64_bars, bus, device, bar, size);
+    pci_add_bar((PCIBarResouce**)&globals->mem_bars, bus, device, bar, size);
+    pci_add_bar((PCIBarResouce**)&globals->mem64_bars, bus, device, bar, size);
 }
 
 
@@ -779,8 +719,8 @@ static void pci_add_exp_rom_bar(uint32_t bus, uint32_t device, uint32_t rom_size
     }
 
     rom_size = MAX(rom_size, PAGE_SIZE);
-    pci_add_bar(&globals->mem_bars, bus, device, EXP_ROM_BAR, rom_size);
-    pci_add_bar(&globals->mem32_bars, bus, device, EXP_ROM_BAR, rom_size);
+    pci_add_bar((PCIBarResouce**)&globals->mem_bars, bus, device, EXP_ROM_BAR, rom_size);
+    pci_add_bar((PCIBarResouce**)&globals->mem32_bars, bus, device, EXP_ROM_BAR, rom_size);
 }
 
 
@@ -841,7 +781,7 @@ static void pci_mark_for_activation(uint32_t bus, uint32_t device)
     descriptor->bus = bus;
     descriptor->device = device;
 
-    for (now = &globals->activation_list; *now; now = &(*now)->next);
+    for (now = (PCIDevDescriptor**)&globals->activation_list; *now; now = &(*now)->next);
 
     *now = descriptor;
 }
@@ -990,20 +930,20 @@ static void init_platform()
 
     outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_LOCK, 0);
 
-    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_1M_USED_PAGES);
-    globals->below_1m_used_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_DATA);
+    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_BELOW_1M_USED_PAGES);
+    globals->below_1m_used_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
-    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_INDEX, PLATFORM_REG_ABOVE_1M_PAGES);
-    globals->above_1m_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_DATA);
+    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_ABOVE_1M_PAGES);
+    globals->above_1m_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
-    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_4G_PAGES);
-    globals->below_4g_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_DATA);
+    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_BELOW_4G_PAGES);
+    globals->below_4g_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
-    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_INDEX, PLATFORM_REG_BELOW_4G_USED_PAGES);
-    globals->below_4g_used_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_DATA);
+    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_BELOW_4G_USED_PAGES);
+    globals->below_4g_used_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
-    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_INDEX, PLATFORM_REG_ABOVE_4G_PAGES);
-    globals->above_4g_pages  = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_DATA);
+    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_ABOVE_4G_PAGES);
+    globals->above_4g_pages  = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
     below_4g_sum = globals->above_1m_pages + (MB >> PAGE_SHIFT);
     below_4g_sum = ALIGN(below_4g_sum, (MID_RAM_RANGE_ALIGMENT_MB * MB) >> PAGE_SHIFT);
@@ -1030,7 +970,7 @@ static void pci_asign_io()
 {
     uint32_t address = PCI_BASE_IO_ADDRESS;
 
-    PCIBarResouce* item = globals->io_bars;
+    PCIBarResouce* item = (PCIBarResouce*)globals->io_bars;
 
     for (; item; item = item->next) {
         uint32_t bar_val;
@@ -1113,7 +1053,7 @@ static int pci_asign_mem32(PCIBarResouce* bar_list)
 
 static void pci_asign_mem64()
 {
-    PCIBarResouce* item = globals->mem64_bars;
+    PCIBarResouce* item = (PCIBarResouce*)globals->mem64_bars;
     uint64_t pci_hole_start;
     uint64_t pci_hole_end;
     uint64_t alloc_start;
@@ -1153,7 +1093,7 @@ static void pci_asign_mem64()
 
 static void pci_activation()
 {
-    PCIDevDescriptor* descriptor = globals->activation_list;
+    PCIDevDescriptor* descriptor = (PCIDevDescriptor*)globals->activation_list;
 
     for (; descriptor; descriptor = descriptor->next) {
         PCIDeviceType type;
@@ -1200,8 +1140,8 @@ static void init_pci()
     pci_for_each(pci_collect_resources);
     pci_asign_io();
 
-    if (!pci_asign_mem32(globals->mem_bars)) {
-        if (!pci_asign_mem32(globals->mem32_bars)) {
+    if (!pci_asign_mem32((PCIBarResouce*)globals->mem_bars)) {
+        if (!pci_asign_mem32((PCIBarResouce*)globals->mem32_bars)) {
             post_and_halt(POST_CODE_PCI_OOM);
         }
 
@@ -1223,7 +1163,6 @@ static void init_globals()
 {
     uint32_t eax, ebx, ecx, edx;
 
-    mem_set(globals, 0, sizeof(*globals));
     globals->alloc_start = DUMB_ALLOC_START;
     globals->alloc_end = DUMB_ALLOC_START + DUMB_ALLOC_SIZE;
     globals->alloc_pos = globals->alloc_start;
@@ -1670,8 +1609,10 @@ void init()
 
     platform_debug_string("hello :)");
 
-    ASSERT(sizeof(Globals) <= BIOS_EXTENDED_DATA_AREA_KB * KB - EBDA_PRIVATE_GLOBALS);
+    ASSERT(sizeof(EBDA) <= BIOS_EXTENDED_DATA_AREA_KB * KB);
     ASSERT(*(uint16_t*)(bda + BDA_OFFSET_EBDA) == (BIOS_EXTENDED_DATA_AREA_ADDRESS >> 4));
+    ASSERT(OFFSET_OF(EBDAPrivate, real_mode_ss) == PRIVATE_OFFSET_SS);
+    ASSERT(OFFSET_OF(EBDAPrivate, real_mode_sp) == PRIVATE_OFFSET_SP);
 
     init_cpu();
     init_rtc();

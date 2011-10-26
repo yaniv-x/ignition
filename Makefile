@@ -23,7 +23,7 @@ bios32.bin : entry32.o bios32.o
 
 entry32.o : entry32.nasm defs.inc
 
-bios32.o : bios32.c types.h defs.h common.c
+bios32.o : bios32.c types.h defs.h nox.h common.c
 	$(WCC386) -q -6 -ecc -zls -s -os $<
 
 bios.bin : entry.o bios.o jump.bin
@@ -36,7 +36,7 @@ entry.o : entry.nasm defs.inc
 jump.bin : jump.nasm
 	nasm -f bin -o $@ $<
 
-bios.o : bios.c  types.h defs.h common.c
+bios.o : bios.c  types.h defs.h nox.h common.c
 	$(WCC) -q -6 -ecc -zls -ms  -zc -s $<
 
 clean :

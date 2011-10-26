@@ -27,6 +27,8 @@
 #ifndef _H_TYPES
 #define _H_TYPES
 
+#include "defs.h"
+
 typedef unsigned __int8 uint8_t;
 typedef unsigned __int16 uint16_t;
 typedef unsigned __int32 uint32_t;
@@ -44,6 +46,41 @@ typedef _Packed struct discriptor_reg_t {
     uint16_t limit;
     uint32_t address;
 } discriptor_reg_t;
+
+
+typedef _Packed struct EBDAPrivate {
+    uint16_t real_mode_ss;
+    uint16_t real_mode_sp;
+    uint32_t below_1m_used_pages;
+    uint32_t above_1m_pages;
+    uint32_t below_4g_pages;
+    uint32_t below_4g_used_pages;
+    uint32_t above_4g_pages;
+    uint32_t pci32_hole_start;
+    uint32_t pci32_hole_end;
+    uint64_t pci64_hole_start;
+
+    uint16_t platform_io;
+    address_t platform_ram;
+    uint8_t address_lines;
+
+    uint32_t alloc_start;
+    uint32_t alloc_pos;
+    uint32_t alloc_end;
+    uint32_t flags;
+    address_t activation_list;
+    address_t io_bars;
+    address_t mem_bars;
+    address_t mem32_bars;
+    address_t mem64_bars;
+} EBDAPrivate;
+
+
+typedef _Packed struct EBDA {
+    uint8_t public[EBDA_PRIVATE_START];
+    EBDAPrivate private;
+} EBDA;
+
 
 #endif
 

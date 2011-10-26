@@ -26,10 +26,12 @@
 
 #include "types.h"
 #include "defs.h"
+#include "nox.h"
 
 
 #include "common.c"
 
+#define OFFSET_OF(type, member) ((uint16_t)&((type*)0)->member)
 
 void call32(void);
 void unhandled_interrupt(void);
@@ -184,6 +186,29 @@ static void ebda_write_byte(uint16_t offset, uint16_t val)
 }
 
 
+static uint16_t ebda_read_word(uint16_t offset)
+{
+    uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
+    return read_word(seg, offset);
+}
+
+
+static void platform_debug_print(char* str)
+{
+    uint16_t port = ebda_read_word(OFFSET_OF(EBDA, private) +
+                                   OFFSET_OF(EBDAPrivate, platform_io));
+
+    outb(port + PLATFORM_IO_SELECT, PLATFORM_REG_WRITE_POS);
+    outd(port + PLATFORM_IO_REGISTER, 0);
+
+    do {
+        outb(port + PLATFORM_IO_PUT_BYTE, *str);
+    } while (*str++);
+
+    outb(port + PLATFORM_IO_LOG, 0);
+}
+
+
 static inline void init_bios_data_area()
 {
     post(POST_CODE_BDA);
@@ -266,6 +291,9 @@ void init()
     call32();
 
     init_int_vector();
+
+    platform_debug_print("log from 16bit");
+
     for (;;) post(POST_CODE_TMP);
 
     restart();

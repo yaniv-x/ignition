@@ -88,8 +88,8 @@ entry:
     xor ax, ax
     mov ds, ax
     mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
-    mov ss, [EBDA_PRIVATE_SS]
-    mov sp, [EBDA_PRIVATE_SP]
+    mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_SS]
+    mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_SP]
 
     pop ds
     pop es
@@ -149,8 +149,8 @@ _call32:
     xor ax, ax
     mov ds, ax
     mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
-    mov [EBDA_PRIVATE_SS], ss
-    mov [EBDA_PRIVATE_SP], sp
+    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_SS], ss
+    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_SP], sp
     mov ds, dx
 
     mov bp, sp

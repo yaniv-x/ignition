@@ -166,9 +166,8 @@
 #define EBDA_PRIVATE_START 0x140 // the last known used offset according to "The Unocumented PC"
                                  // is dword @ 11dh. leaving some space in order to be on the
                                  // safe side.
-#define EBDA_PRIVATE_SS EBDA_PRIVATE_START // also in struct Globals
-#define EBDA_PRIVATE_SP (EBDA_PRIVATE_START + 2) // also in struct Globals
-#define EBDA_PRIVATE_GLOBALS (EBDA_PRIVATE_SP + 2)
+#define PRIVATE_OFFSET_SS 0
+#define PRIVATE_OFFSET_SP 2
 
 #define CPU_FLAGS_ID_BIT 21
 
