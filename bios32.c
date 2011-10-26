@@ -581,7 +581,7 @@ static void platform_debug_string(const char* str)
         return;
     }
 
-    string_copy((uint8_t*)globals->platform_ram, str, PLATFORM_LOG_BUFF_SIZE);
+    string_copy((uint8_t*)globals->platform_ram, str, PLATFORM_LOG_BUF_SIZE);
     outb(globals->platform_io + PLATFORM_IO_LOG, 0);
 }
 
@@ -1268,7 +1268,7 @@ static void set_mttr_var_range(uint slot, uint8_t type, uint64_t address, uint64
 
     format_str((char*)globals->platform_ram,
                "mttr[%u] base 0x%llx mask 0x%llx size %llu%s",
-               PLATFORM_LOG_BUFF_SIZE,
+               PLATFORM_LOG_BUF_SIZE,
                slot,
                address | type,
                mask | MTRR_PHYS_MASK_VALID,
