@@ -41,6 +41,7 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 void halt(void);
+void ret_16(void);
 
 enum {
     PCI_ADDRESS_INDEX_SHIFT = 2,
@@ -150,6 +151,7 @@ enum {
 enum {
     PLATFORM_ERR_INVALID = 0,
     PLATFORM_ERR_INVALID_ARG,
+    PLATFORM_ERR_UNEXPECTED,
 };
 
 
@@ -190,7 +192,7 @@ typedef struct PCIDeviceType {
 } PCIDeviceType;
 
 
-typedef struct Globals {
+typedef _Packed struct Globals {
     uint32_t below_1m_used_pages;
     uint32_t above_1m_pages;
     uint32_t below_4g_pages;
@@ -216,7 +218,7 @@ typedef struct Globals {
 
 static uint8_t* bda = (uint8_t*)BIOS_DATA_AREA_ADDRESS;
 static uint8_t* ebda = (uint8_t*)BIOS_EXTENDED_DATA_AREA_ADDRESS;
-static Globals* globals = (Globals*)(BIOS_EXTENDED_DATA_AREA_ADDRESS + EBDA_PRIVATE_START);
+static Globals* globals = (Globals*)(BIOS_EXTENDED_DATA_AREA_ADDRESS + EBDA_PRIVATE_GLOBALS);
 
 static void platform_debug_string(const char* str);
 
@@ -1239,18 +1241,6 @@ static void reset_platform_io()
 }
 
 
-static inline void init_bios_data_area()
-{
-    post(POST_CODE_BDA);
-
-    mem_reset(bda, BIOS_DATA_AREA_SIZE);
-    mem_reset(ebda, EBDA_PRIVATE_START);
-
-    *BDA_WORD(BDA_OFFSET_EBDA) = BIOS_EXTENDED_DATA_AREA_ADDRESS >> 4;
-    *EBDA_BYTE(EBDA_OFFSET_SIZE) = BIOS_EXTENDED_DATA_AREA_KB;
-}
-
-
 static inline void init_cpu()
 {
     uint32_t eax;
@@ -1655,9 +1645,20 @@ static inline void init_pic()
 }
 
 
+static void notify_error(uint32_t err)
+{
+    if (!globals->platform_io) {
+        return;
+    }
+
+    outd(globals->platform_io + PLATFORM_IO_ERROR, err);
+}
+
+
 void init()
 {
     post(POST_CODE_INIT32);
+
     enable_a20();
     init_globals();
     detect_platform();
@@ -1669,9 +1670,9 @@ void init()
 
     platform_debug_string("hello :)");
 
-    ASSERT(sizeof(Globals) <= BIOS_EXTENDED_DATA_AREA_KB * KB - EBDA_PRIVATE_START);
+    ASSERT(sizeof(Globals) <= BIOS_EXTENDED_DATA_AREA_KB * KB - EBDA_PRIVATE_GLOBALS);
+    ASSERT(*(uint16_t*)(bda + BDA_OFFSET_EBDA) == (BIOS_EXTENDED_DATA_AREA_ADDRESS >> 4));
 
-    init_bios_data_area();
     init_cpu();
     init_rtc();
     init_mem();
@@ -1680,10 +1681,9 @@ void init()
     init_pit();
     init_pic();
 
-    platform_debug_string(__FUNCTION__ ": halting...");
+    ret_16();
 
+    notify_error(PLATFORM_ERR_UNEXPECTED);
     halt();
-
-    restart();
 }
 

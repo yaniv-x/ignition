@@ -39,6 +39,9 @@ global _call32
 
 
 entry:
+    jmp .start
+    jmp .back_from_32bit
+.start:
     mov al, RTC_NMI_MASK
     out IO_PORT_RTC_INDEX, al ; disable NMI
     cli
@@ -56,19 +59,79 @@ entry:
     hlt
     jmp .infloop
 
+.real_mode_idt:
+    dw 1024 - 1
+    dd 0
+
+.back_from_32bit:
+    mov al, POST_CODE_BACK
+    mov dx, IO_PORT_POST_CODE
+    out dx, al
+
+    mov ax, DATA16_SEGMENT_SELECTOR
+    mov ss, ax
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+
+    lidt [.real_mode_idt]
+
+    mov eax, cr0
+    and eax, ~CR0_PE
+    mov cr0, eax
+
+    jmp BIOS16_CODE_SEGMENT:.in_real_mode
+
+.in_real_mode:
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    mov ss, [EBDA_PRIVATE_SS]
+    mov sp, [EBDA_PRIVATE_SP]
+
+    pop ds
+    pop es
+    pop fs
+    pop gs
+    popf
+    popa
+    ret
+
+
 _unhandled_interrupt:
     iret
 
 align 8
 gdt dd 0x00000000, 0x00000000; first descriptor must be null descriptor
-    dd 0x0000ffff, (SD_CS | SD_PRESENT | SD_32 | SD_4K | (0x0f << SD_HLIMIT_SHIFT)) ; cs
-    dd 0x0000ffff, (SD_DS | SD_PRESENT| SD_32 | SD_4K | (0x0f << SD_HLIMIT_SHIFT))  ; ds
+    dd 0x0000ffff, (SD_CS | SD_PRESENT | SD_32 | SD_4K | (0x0f << SD_HLIMIT_SHIFT)) ; 32bit code
+    dd 0x0000ffff, (SD_DS | SD_PRESENT| SD_32 | SD_4K | (0x0f << SD_HLIMIT_SHIFT))  ; 32bit data
+    dd 0x00000010, (SD_CS | SD_PRESENT | SD_4K | 0x0f) ; 16bit code base is 0xf0000 and limit 64kb
+    dd 0x00000010, (SD_DS | SD_PRESENT| SD_4K)  ; 16bit data base is 0 limit is 64kb
+    dd 0x0000ffff, (SD_DS | SD_PRESENT| SD_4K | (0x0f << SD_HLIMIT_SHIFT)) ; 16bit unreal data
 gdt_end:
 
 
 _call32:
+    pusha
+    pushf
+    push gs
+    push fs
+    push es
+    push ds
+
+    mov dx, ds
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    mov [EBDA_PRIVATE_SS], ss
+    mov [EBDA_PRIVATE_SP], sp
+    mov ds, dx
+
     mov bp, sp
     sub sp, 6
+    mov al, RTC_NMI_MASK
+    out IO_PORT_RTC_INDEX, al ; disable NMI
     cli
     mov word [bp - 6], 0
     mov word [bp - 4], 0

@@ -59,6 +59,11 @@ _halt:
     jmp .infloop
 
 
+global _ret_16
+_ret_16:
+    jmp dword CODE16_SEGMENT_SELECTOR:BACK_FROM_PM_START_ADDRESS
+
+
 ; copy from watcom i8rs386.asm
 global __U8LS
 __U8LS:

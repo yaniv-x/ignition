@@ -31,12 +31,12 @@
 #define EOS 0
 
 #define PAGE_SHIFT 12
-#define PAGE_SIZE (1 << PAGE_SHIFT)
+#define PAGE_SIZE (1UL << PAGE_SHIFT)
 
 #define TRUE 1
 #define FALSE 0
 
-#define KB 1024
+#define KB 1024UL
 #define MB (1024 * KB)
 #define GB (1024 * MB)
 
@@ -141,8 +141,10 @@
 #define POST_CODE_KEYBOARD 21
 #define POST_CODE_MOUSE 22
 #define POST_CODE_PIC 23
+#define POST_CODE_BACK 24
+#define POST_CODE_TMP 255
 
-#define BASE_MEMORY_SIZE_KB 640
+#define BASE_MEMORY_SIZE_KB 640UL
 
 #define BIOS_DATA_AREA_ADDRESS 0x400
 #define BIOS_DATA_AREA_SIZE 0x100
@@ -163,6 +165,9 @@
 #define EBDA_PRIVATE_START 0x140 // the last known used offset according to "The Unocumented PC"
                                  // is dword @ 11dh. leaving some space in order to be on the
                                  // safe side.
+#define EBDA_PRIVATE_SS EBDA_PRIVATE_START // also in struct Globals
+#define EBDA_PRIVATE_SP (EBDA_PRIVATE_START + 2) // also in struct Globals
+#define EBDA_PRIVATE_GLOBALS (EBDA_PRIVATE_SP + 2)
 
 #define CPU_FLAGS_ID_BIT 21
 
@@ -193,9 +198,14 @@
 
 #define CODE_SEGMENT_SELECTOR (1 << 3)
 #define DATA_SEGMENT_SELECTOR (2 << 3)
+#define CODE16_SEGMENT_SELECTOR (3 << 3)
+#define DATA16_SEGMENT_SELECTOR (4 << 3)
+#define UNREAL_SEGMENT_SELECTOR (5 << 3)
 
 #define PROTECTED_START_ADDRESS ((1024 - 128) * 1024)
 #define PROTECTED_STACK_BASE (1024 * 256)
+#define BACK_FROM_PM_START_ADDRESS 0x0002
+#define BIOS16_CODE_SEGMENT 0xf000
 
 #define MSR_MTRR_CAP 0xfe
 #define MSR_MTRR_PHYS_BASE_0 0x200
