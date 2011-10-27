@@ -32,6 +32,8 @@
 #include "common.c"
 
 #define OFFSET_OF(type, member) ((uint16_t)&((type*)0)->member)
+#define CLI() __asm { cli}
+#define STI() __asm { sti}
 
 void call32(void);
 void unhandled_interrupt(void);
@@ -198,6 +200,9 @@ static void platform_debug_print(char* str)
     uint16_t port = ebda_read_word(OFFSET_OF(EBDA, private) +
                                    OFFSET_OF(EBDAPrivate, platform_io));
 
+    uint32_t flags = get_eflags();
+    CLI();
+
     outb(port + PLATFORM_IO_SELECT, PLATFORM_REG_WRITE_POS);
     outd(port + PLATFORM_IO_REGISTER, 0);
 
@@ -206,6 +211,8 @@ static void platform_debug_print(char* str)
     } while (*str++);
 
     outb(port + PLATFORM_IO_LOG, 0);
+
+    put_eflags(flags);
 }
 
 
@@ -242,8 +249,15 @@ static void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
 
 void on_unhandled_irq(uint16_t irq)
 {
-    if (irq > 7) irq = 2;
+    if (irq > 7) {
+        outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | (irq % 8));
+        irq = 2;
+    }
+
+    outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | irq);
     bda_write_byte(BDA_OFFSET_LAST_IRQ, 1 << irq);
+
+    platform_debug_print(__FUNCTION__);
 }
 
 
@@ -294,7 +308,12 @@ void init()
 
     platform_debug_print("log from 16bit");
 
-    for (;;) post(POST_CODE_TMP);
+    STI();
+    outb(IO_PORT_PIC1 + 1, (inb(IO_PORT_PIC1 + 1) & ~1)); // unmask pit
+
+    post(POST_CODE_TMP);
+
+    for (;;);
 
     restart();
 }

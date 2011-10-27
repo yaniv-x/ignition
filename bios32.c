@@ -236,29 +236,6 @@ static void write_msr(uint32_t index, uint64_t val)
 }
 
 
-static uint32_t get_eflags()
-{
-    uint32_t r;
-
-    __asm {
-       pushf
-       pop eax
-       mov r, eax
-    }
-
-    return r;
-}
-
-
-static void put_eflags(uint32_t flags)
-{
-    __asm {
-       push flags
-       popf
-    }
-}
-
-
 static void mem_set(void* from, uint8_t patern, uint32_t n)
 {
     uint8_t* now = from;

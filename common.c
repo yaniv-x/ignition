@@ -96,6 +96,29 @@ static inline uint32_t ind(uint16_t port)
 }
 
 
+static uint32_t get_eflags()
+{
+    uint32_t r;
+
+    __asm {
+       pushf
+       pop eax
+       mov r, eax
+    }
+
+    return r;
+}
+
+
+static void put_eflags(uint32_t flags)
+{
+    __asm {
+       push flags
+       popf
+    }
+}
+
+
 static inline void post(uint8_t code)
 {
     outb(IO_PORT_POST_CODE, code);
