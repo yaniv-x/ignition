@@ -53,6 +53,8 @@ void unhandled_irq12(void);
 void unhandled_irq13(void);
 void unhandled_irq14(void);
 void unhandled_irq15(void);
+void pit_irq_handler();
+
 
 #define FUNC_OFFSET(function) (uint16_t)(function)
 
@@ -298,6 +300,38 @@ static void init_int_vector()
     }
 }
 
+void on_pit_interrupt()
+{
+    uint32_t* counter;
+
+    set_ds(BDA_SEG);
+
+    *(uint8_t*)BDA_OFFSET_LAST_IRQ = ~0;
+
+    counter = (uint32_t*)BDA_OFFSET_TICKS;
+
+    if (++*counter == 0x18038aUL) { //24 hours
+        *counter = 0;
+        *(uint8_t*)BDA_OFFSET_TICKS_ROLLOVER = 1;
+    }
+
+    if ((*counter % 36) == 0) {
+        restore_ds();
+        platform_debug_print("tick");
+    }
+
+    __asm { int 0x1c}
+
+    outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | 0);
+}
+
+
+static void setup_pit_irq()
+{
+    set_int_vec(0x08, get_cs(), FUNC_OFFSET(pit_irq_handler));
+    outb(IO_PORT_PIC1 + 1, (inb(IO_PORT_PIC1 + 1) & ~1)); // unmask pit
+}
+
 
 void init()
 {
@@ -319,12 +353,15 @@ void init()
                     0x1020, 0x18283848, 0x1929394959697989);
     platform_debug_print(str);
 
+    setup_pit_irq();
+
     STI();
-    outb(IO_PORT_PIC1 + 1, (inb(IO_PORT_PIC1 + 1) & ~1)); // unmask pit
 
     post(POST_CODE_TMP);
 
-    for (;;);
+    for (;;) {
+        __asm { hlt}
+    }
 
     restart();
 }

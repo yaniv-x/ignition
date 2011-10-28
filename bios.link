@@ -5,6 +5,7 @@ file bios.o
 file lib16/i8d086.o
 file lib16/i8m086.o
 file lib16/u8rs086.o
+file lib16/i4d.o
 
 order
     clname ENTRY

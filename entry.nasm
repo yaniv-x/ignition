@@ -33,6 +33,7 @@ group DGROUP _TEXT
 
 extern _init
 extern _on_unhandled_irq
+extern _on_pit_interrupt
 
 
 global _unhandled_interrupt
@@ -124,6 +125,12 @@ UNHANDLE_IRQ 12
 UNHANDLE_IRQ 13
 UNHANDLE_IRQ 14
 UNHANDLE_IRQ 15
+
+
+global _pit_irq_handler ; F000h:FEA5h in IBM PC and 100%-compatible BIOSes
+_pit_irq_handler:
+    call _on_pit_interrupt
+    iret
 
 _unhandled_interrupt:
     iret
