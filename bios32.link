@@ -1,7 +1,12 @@
 name bios32.bin
 format raw bin
+
 file entry32.o
 file bios32.o
+file lib32/i8rs386.o
+file lib32/i8d.o
+file lib32/i8m386.o
+
 option nodefaultlibs,offset=896k
 disable 1023
 

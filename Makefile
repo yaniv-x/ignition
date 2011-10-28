@@ -18,6 +18,7 @@ ignition.bin : bios.bin bios32.bin
 
 bios32.bin : entry32.o bios32.o
 	$(WL) option q @bios32.link
+	echo output size is $$(stat -c%s $@)
 	[[ $$(stat -c%s $@) -le 65536 ]]
 	[[ $$(stat -c%s $@) -eq 65536 ]] || dd bs=1 count=1 seek=65535 if=/dev/zero of=$@
 
@@ -28,6 +29,7 @@ bios32.o : bios32.c types.h defs.h nox.h common.c
 
 bios.bin : entry.o bios.o jump.bin
 	$(WL) option q @bios.link
+	echo output size is $$(stat -c%s $@)
 	[[ $$(stat -c%s $@) -le 65520 ]]
 	dd bs=1 count=16 seek=65520 if=jump.bin of=$@
 
@@ -37,7 +39,7 @@ jump.bin : jump.nasm
 	nasm -f bin -o $@ $<
 
 bios.o : bios.c  types.h defs.h nox.h common.c
-	$(WCC) -q -6 -ecc -zls -ms -zc -zu -s $<
+	$(WCC) -q -6 -ecc -zls -ms -zc -zu -s -os $<
 
 clean :
 	rm -f *.o *.bin defs.inc
