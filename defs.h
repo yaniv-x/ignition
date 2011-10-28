@@ -27,6 +27,12 @@
 #ifndef _H_DEFS
 #define _H_DEFS
 
+#ifdef _M_I86
+#define FAR __far
+#else
+#define FAR
+#endif
+
 #define NULL 0
 #define EOS 0
 

@@ -2,6 +2,9 @@ name bios.bin
 format dos com 
 file entry.o
 file bios.o
+file lib16/i8d086.o
+file lib16/i8m086.o
+file lib16/u8rs086.o
 
 order
     clname ENTRY

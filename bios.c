@@ -195,7 +195,7 @@ static uint16_t ebda_read_word(uint16_t offset)
 }
 
 
-static void platform_debug_print(char* str)
+static void platform_debug_print(char FAR * str)
 {
     uint16_t port = ebda_read_word(OFFSET_OF(EBDA, private) +
                                    OFFSET_OF(EBDAPrivate, platform_io));
@@ -249,6 +249,10 @@ static void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
 
 void on_unhandled_irq(uint16_t irq)
 {
+    char buf[100]; // todo: swich to private stack
+    format_str(buf, "unhandled irq %u", 100, irq);
+    platform_debug_print(buf);
+
     if (irq > 7) {
         outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | (irq % 8));
         irq = 2;
@@ -256,8 +260,6 @@ void on_unhandled_irq(uint16_t irq)
 
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | irq);
     bda_write_byte(BDA_OFFSET_LAST_IRQ, 1 << irq);
-
-    platform_debug_print(__FUNCTION__);
 }
 
 
@@ -299,6 +301,8 @@ static void init_int_vector()
 
 void init()
 {
+    char str[1024];
+
     post(POST_CODE_INIT16);
     init_bios_data_area();
 
@@ -307,6 +311,13 @@ void init()
     init_int_vector();
 
     platform_debug_print("log from 16bit");
+
+    format_str(str, "format str test: %%s %s %%u %u %%lu %lu %%llu %llu"
+                    " %%x %x %%lx %lx %%llx %llx",
+                    sizeof(str), (const char FAR *)"string",
+                    1020, 18283848, 192939495969,
+                    0x1020, 0x18283848, 0x1929394959697989);
+    platform_debug_print(str);
 
     STI();
     outb(IO_PORT_PIC1 + 1, (inb(IO_PORT_PIC1 + 1) & ~1)); // unmask pit

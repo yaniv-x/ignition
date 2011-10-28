@@ -173,3 +173,190 @@ static int find_lsb_64(uint64_t val)
     return -1;
 }
 
+
+static uint32_t format_put_x(char FAR *  dest, uint32_t len, uint64_t val, uint bits)
+{
+    static char conv_table[] = {
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        'a', 'b', 'c', 'd', 'e', 'f',
+    };
+
+    uint32_t start_len = len;
+    int shift = bits - 4;
+
+    while (shift && !((val >> shift) & 0xf)) shift -=4;
+
+    for (; len && shift >= 0 ; len--, dest++, shift -= 4) {
+        *dest = conv_table[(val >> shift) & 0xf];
+    }
+
+    return start_len - len;
+}
+
+
+static uint32_t format_put_u(char FAR *  dest, uint32_t len, uint64_t val)
+{
+    uint32_t start_len = len;
+    uint64_t tmp = val / 10;
+    uint64_t div = 1;
+
+    for (; tmp; div *= 10, tmp /= 10);
+
+    for (; len && div; div /= 10, len--, dest++) {
+        *dest = 0x30 + val / div;
+        val %= div;
+    }
+
+    return start_len - len;
+}
+
+
+static uint32_t format_put_str(char FAR *  dest, uint32_t len, char FAR * str)
+{
+    uint32_t start_len;
+
+    if (!str) {
+        return format_put_str(dest, len, "NULL");
+    }
+
+    start_len = len;
+
+    for (; len && *str; len--, str++, dest++) *dest = *str;
+
+    return start_len - len;
+}
+
+
+static void format_str(char FAR *  dest, const char FAR * format, uint32_t len, ...)
+{
+    uint32_t FAR * args = &len + 1;
+    uint advance = 0;
+    uint length = 0;
+
+    enum {
+        FORMAT_STATE_ORDINARY = 0,
+        FORMAT_STATE_START,
+        FORMAT_STATE_FLAGS,
+        FORMAT_STATE_WIDTH,
+        FORMAT_STATE_PRECISION,
+        FORMAT_STATE_LENGTH,
+
+        FORMAT_LENGTH_L = 1,
+        FORMAT_LENGTH_LL = 2,
+    };
+
+    int stage = FORMAT_STATE_ORDINARY;
+
+    if (!len--) {
+        return;
+    }
+
+    for (; *format && len; format++) {
+        if (*format == '%') {
+            if (!stage) {
+                stage = FORMAT_STATE_START;
+                continue;
+            }
+
+            if (stage != FORMAT_STATE_START) {
+                // invalid format
+                break;
+            }
+
+            stage = FORMAT_STATE_ORDINARY;
+        }
+
+        if (!stage) {
+            *dest++ = *format;
+            --len;
+            continue;
+        }
+
+        switch (*format) {
+        case 'x': {
+            uint64_t val;
+            uint bits;
+
+            if (length == FORMAT_LENGTH_LL) {
+                val = *(uint64_t FAR *)args;
+                args += 2;
+                bits = 64;
+            } else {
+#ifdef _M_I86
+                if (length == FORMAT_LENGTH_L) {
+                    val = *args++;
+                    bits = 32;
+                } else {
+                    uint16_t FAR * short_arg = (uint16_t FAR *)args;
+                    val = *short_arg++;
+                    args = (uint32_t FAR *)short_arg;
+                    bits = 16;
+                }
+#else
+                val = *args++;
+                bits = 32;
+#endif
+            }
+
+            advance = format_put_x(dest, len, val, bits);
+
+            break;
+        }
+        case 'u': {
+            uint64_t val;
+
+            if (length == FORMAT_LENGTH_LL) {
+                val = *(uint64_t FAR *)args;
+                args += 2;
+            } else {
+#ifdef _M_I86
+                if (length == FORMAT_LENGTH_L) {
+                    val = *args++;
+                } else {
+                    uint16_t FAR * short_arg = (uint16_t FAR *)args;
+                    val = *short_arg;
+                    args = (uint32_t FAR *)(short_arg + 1);
+                }
+#else
+                val = *args++;
+#endif
+            }
+            advance = format_put_u(dest, len, val);
+            break;
+        }
+        case 's':
+            advance = format_put_str(dest, len, (char FAR *)*args++);
+            break;
+        case 'l':
+            stage = FORMAT_STATE_LENGTH;
+
+            if (!length) {
+                length = FORMAT_LENGTH_L;
+                break;
+            }
+
+            if (length == FORMAT_LENGTH_L) {
+                length = FORMAT_LENGTH_LL;
+                break;
+            }
+
+            // invalid format
+            len = 0;
+            break;
+        default:
+            // invalid format
+            len = 0;
+        }
+
+        if (advance) {
+            len -= advance;
+            dest += advance;
+            stage = FORMAT_STATE_ORDINARY;
+            advance = 0;
+            length = 0;
+        }
+    }
+
+    *dest = 0;
+}
+
