@@ -34,6 +34,7 @@
 #define OFFSET_OF(type, member) ((uint16_t)&((type*)0)->member)
 #define CLI() __asm { cli}
 #define STI() __asm { sti}
+#define HALT() __asm { hlt}
 
 void call32(void);
 void unhandled_interrupt(void);
@@ -53,10 +54,36 @@ void unhandled_irq12(void);
 void unhandled_irq13(void);
 void unhandled_irq14(void);
 void unhandled_irq15(void);
-void pit_irq_handler();
+void pit_interrupt_handler();
+void rtc_interrupt_handler();
+void int15_handler();
 
 
 #define FUNC_OFFSET(function) (uint16_t)(function)
+
+
+#define REG_HI(x) (((uint8_t FAR *)&x)[1])
+#define REG_LOW(x) (((uint8_t FAR *)&x)[0])
+
+typedef _Packed struct UserRegs {
+    uint16_t gs;
+    uint16_t fs;
+    uint16_t es;
+    uint16_t ds;
+
+    uint16_t di;
+    uint16_t si;
+    uint16_t bp;
+    uint16_t sp;
+    uint16_t bx;
+    uint16_t dx;
+    uint16_t cx;
+    uint16_t ax;
+
+    uint16_t ip;
+    uint16_t cs;
+    uint16_t flags;
+} UserRegs;
 
 
 static uint16_t set_ds(uint16_t data_seg)
@@ -118,10 +145,30 @@ static uint16_t read_word(uint16_t seg, uint16_t offset)
 }
 
 
+static uint32_t read_dword(uint16_t seg, uint16_t offset)
+{
+    uint32_t val;
+
+    seg = set_ds(seg);
+    val = *(uint32_t*)offset;
+    set_ds(seg);
+
+    return val;
+}
+
+
 static void write_word(uint16_t seg, uint16_t offset, uint16_t val)
 {
     seg = set_ds(seg);
     *(uint16_t*)offset = val;
+    set_ds(seg);
+}
+
+
+static void write_dword(uint16_t seg, uint16_t offset, uint32_t val)
+{
+    seg = set_ds(seg);
+    *(uint32_t*)offset = val;
     set_ds(seg);
 }
 
@@ -165,6 +212,12 @@ static void mem_reset(uint16_t seg, uint16_t offset, uint16_t n)
 }
 
 
+static uint8_t bda_read_byte(uint16_t offset)
+{
+    return read_byte(BIOS_DATA_AREA_ADDRESS >> 4, offset);
+}
+
+
 static void bda_write_byte(uint16_t offset, uint8_t val)
 {
     write_byte(BIOS_DATA_AREA_ADDRESS >> 4, offset, val);
@@ -180,6 +233,25 @@ static uint16_t bda_read_word(uint16_t offset)
 static void bda_write_word(uint16_t offset, uint16_t val)
 {
     write_word(BIOS_DATA_AREA_ADDRESS >> 4, offset, val);
+}
+
+
+static uint32_t bda_read_dword(uint16_t offset)
+{
+    return read_dword(BIOS_DATA_AREA_ADDRESS >> 4, offset);
+}
+
+
+static void bda_write_dword(uint16_t offset, uint32_t val)
+{
+    write_dword(BIOS_DATA_AREA_ADDRESS >> 4, offset, val);
+}
+
+
+static uint8_t ebda_read_byte(uint16_t offset)
+{
+    uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
+    return read_byte(seg, offset);
 }
 
 
@@ -328,8 +400,153 @@ void on_pit_interrupt()
 
 static void setup_pit_irq()
 {
-    set_int_vec(0x08, get_cs(), FUNC_OFFSET(pit_irq_handler));
-    outb(IO_PORT_PIC1 + 1, (inb(IO_PORT_PIC1 + 1) & ~1)); // unmask pit
+    set_int_vec(0x08, get_cs(), FUNC_OFFSET(pit_interrupt_handler));
+    outb(IO_PORT_PIC1 + 1, (inb(IO_PORT_PIC1 + 1) & ~(1 << PIC1_TIMER_PIN)));
+}
+
+
+static void setup_rtc_irq()
+{
+    set_int_vec(0x70, get_cs(), FUNC_OFFSET(rtc_interrupt_handler));
+    outb(IO_PORT_PIC2 + 1, (inb(IO_PORT_PIC1 + 2) & ~(1 << PIC2_RTC_PIN)));
+    set_int_vec(0x15, get_cs(), FUNC_OFFSET(int15_handler));
+}
+
+
+static void rtc_write(uint index, uint8_t val)
+{
+    outb(IO_PORT_RTC_INDEX, index | ebda_read_byte(OFFSET_OF(EBDA, private) +
+                                                   OFFSET_OF(EBDAPrivate, nmi_mask)));
+    outb(IO_PORT_RTC_DATA, val);
+}
+
+
+static uint8_t rtc_read(uint index)
+{
+    outb(IO_PORT_RTC_INDEX, index | ebda_read_byte(OFFSET_OF(EBDA, private) +
+                                                   OFFSET_OF(EBDAPrivate, nmi_mask)));
+    return inb(IO_PORT_RTC_DATA);
+}
+
+
+static uint8_t start_wait(uint32_t micro, far_ptr_t usr_ptr)
+{
+    uint8_t regb;
+
+    bda_write_byte(BDA_OFFSET_WAIT_FLAGS, bda_read_byte(BDA_OFFSET_WAIT_FLAGS) | BDA_WAIT_IN_USE);
+
+    bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, micro);
+    bda_write_dword(BDA_OFFSET_WAIT_USR_PTR, usr_ptr);
+
+    rtc_write(0x0a, (rtc_read(0x0a) & ~RTC_REG_A_RATE_MASK) | RTC_REG_A_RATE_976U);
+    regb = rtc_read(0x0b) | RTC_REG_B_ENABLE_PERIODIC_MASK;
+    rtc_write(0x0b, regb);
+
+    return regb;
+}
+
+
+void on_int15(UserRegs __far * context)
+{
+    switch (REG_HI(context->ax)) {
+    case 0x83:
+        switch (REG_LOW(context->ax)) {
+        case 0: {
+            uint32_t micro = ((uint32_t)context->cx << 16) | context->dx;
+
+            if (!micro) {
+                write_dword(context->es, context->bx,
+                            read_dword(context->es, context->bx) | BDA_WAIT_ELAPSED);
+            } else {
+                if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
+                    context->ax = 0;
+                    context->flags |= (1 << CPU_FLAGS_CF_BIT);
+                    return;
+                }
+
+                REG_LOW(context->ax) = start_wait(((uint32_t)context->cx << 16) | context->dx,
+                                                  ((uint32_t)context->es << 16) | context->bx);
+            }
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+            break;
+        }
+        case 1:
+            rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
+            bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
+                           bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_IN_USE);
+            rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+            break;
+        default:
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            REG_HI(context->ax) = 0x86;
+        }
+    case 0x86: {
+        uint32_t micro = ((uint32_t)context->cx << 16) |context->dx;
+
+        if (!micro) {
+             bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
+             bda_read_byte(BDA_OFFSET_WAIT_FLAGS) | BDA_WAIT_ELAPSED);
+        } else {
+            if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
+                context->ax = 0;
+                context->flags |= (1 << CPU_FLAGS_CF_BIT);
+                return;
+            }
+
+            bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
+                           bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_ELAPSED);
+            start_wait(micro, ((uint32_t)BDA_SEG << 16) | BDA_OFFSET_WAIT_FLAGS);
+
+            for (;;) {
+                if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_ELAPSED) {
+                    break;
+                }
+
+                STI();
+                HALT();
+                CLI();
+            }
+        }
+
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        context->ax = 0;
+        break;
+    }
+    default:
+        context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        REG_HI(context->ax) = 0x86;
+    }
+}
+
+
+void on_rtc_interrupt()
+{
+    uint8_t regc;
+
+    regc = rtc_read(0x0c);
+
+    if ((regc & RTC_REG_C_PERIODIC_INTERRUPT_MASK) &&
+                                        (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE)) {
+        uint32_t counter = bda_read_dword(BDA_OFFSET_WAIT_COUNT_MICRO);
+        if (counter < BIOS_MICRO_PER_TICK) { // ~1 mili in mode 6
+            far_ptr_t ptr;
+            uint32_t val;
+
+            bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, 0);
+            rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
+            ptr = bda_read_dword(BDA_OFFSET_WAIT_USR_PTR);
+            val = read_dword(ptr >> 16, ptr & 0xffff);
+            write_dword(ptr >> 16, ptr & 0xffff, (val | BDA_WAIT_ELAPSED));
+            bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
+                           bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_IN_USE);
+        } else {
+            bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, counter - BIOS_MICRO_PER_TICK);
+        }
+    }
+
+    outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | 2);
+    outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | 0);
 }
 
 
@@ -354,13 +571,20 @@ void init()
     platform_debug_print(str);
 
     setup_pit_irq();
+    setup_rtc_irq();
 
     STI();
 
     post(POST_CODE_TMP);
 
     for (;;) {
-        __asm { hlt}
+         __asm {
+            mov ah, 86h
+            mov cx, 0x98
+            mov dx, 0x9680
+            int 15h
+        }
+        platform_debug_print("post wait");
     }
 
     restart();

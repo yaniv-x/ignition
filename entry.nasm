@@ -33,7 +33,6 @@ group DGROUP _TEXT
 
 extern _init
 extern _on_unhandled_irq
-extern _on_pit_interrupt
 
 
 global _unhandled_interrupt
@@ -126,11 +125,58 @@ UNHANDLE_IRQ 13
 UNHANDLE_IRQ 14
 UNHANDLE_IRQ 15
 
+%macro IRQ_HANDLER 1
+extern _on_%1_interrupt
+global _%1_interrupt_handler
+_%1_interrupt_handler:
+    pusha
+    push ds
+    push es
+    push fs
+    push gs
 
-global _pit_irq_handler ; F000h:FEA5h in IBM PC and 100%-compatible BIOSes
-_pit_irq_handler:
-    call _on_pit_interrupt
+    ; todo: use irq stack
+    call _on_%1_interrupt
+
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    popa
+
     iret
+%endmacro
+
+IRQ_HANDLER pit ; org F000h:FEA5h in IBM PC and 100%-compatible BIOSes
+IRQ_HANDLER rtc
+
+
+%macro INT_HANDLER 1
+extern _on_int%1
+global _int%1_handler
+_int%1_handler:
+    pusha
+    push ds
+    push es
+    push fs
+    push gs
+
+    mov ax, sp
+    push ss
+    push ax
+    call _on_int%1
+    add sp, 4
+
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    popa
+
+    iret
+%endmacro
+
+INT_HANDLER 15 ; org F000h:F859 in IBM PC and 100%-compatible BIOSes
 
 _unhandled_interrupt:
     iret

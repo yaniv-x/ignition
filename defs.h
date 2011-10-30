@@ -74,9 +74,14 @@
 #define RTC_REG_A_DIVIDER_NORMAL 0x2
 #define RTC_REG_A_DIVIDER_32 0x3
 #define RTC_REG_A_DIVIDER_128 0x0
+#define RTC_REG_A_RATE_MASK ((1 << 4) - 1)
+#define RTC_REG_A_RATE_976U 6
 
 #define RTC_REG_B_DAYLIGHT_MASK (1 << 0)
 #define RTC_REG_B_24_HOUR_MASK (1 << 1)
+#define RTC_REG_B_ENABLE_PERIODIC_MASK (1 << 6)
+
+#define RTC_REG_C_PERIODIC_INTERRUPT_MASK (1 << 6)
 
 #define PIC_ICW1_MASK (1 << 4)
 #define PIC_ICW1_ICW4 (1 << 0)
@@ -166,9 +171,15 @@
 #define BDA_OFFSET_LAST_IRQ 0x6b
 #define BDA_OFFSET_TICKS 0x6c
 #define BDA_OFFSET_TICKS_ROLLOVER 0x70
+#define BDA_OFFSET_WAIT_USR_PTR 0x98
+#define BDA_OFFSET_WAIT_COUNT_MICRO 0x9c
+#define BDA_OFFSET_WAIT_FLAGS 0xa0
 
 #define BDA_EQUIPMENT_COPROCESSOR_BIT 1
 #define BDA_EQUIPMENT_MOUSE_BIT 2
+
+#define BDA_WAIT_IN_USE (1 << 0)
+#define BDA_WAIT_ELAPSED (1 << 7)
 
 #define EBDA_OFFSET_SIZE 0
 #define EBDA_OFFSET_CACHE_CONTROL 0x68
@@ -177,10 +188,14 @@
 #define EBDA_PRIVATE_START 0x140 // the last known used offset according to "The Unocumented PC"
                                  // is dword @ 11dh. leaving some space in order to be on the
                                  // safe side.
+
+#define BIOS_MICRO_PER_TICK 976
+
 #define PRIVATE_OFFSET_SS 0
 #define PRIVATE_OFFSET_SP 2
 
 #define CPU_FLAGS_ID_BIT 21
+#define CPU_FLAGS_CF_BIT 0
 
 // cpu id func 1 - edx
 #define CPU_FEATURE_FPU_BIT 0

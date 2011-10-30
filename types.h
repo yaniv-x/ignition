@@ -35,6 +35,7 @@ typedef unsigned __int32 uint32_t;
 typedef unsigned __int64 uint64_t;
 typedef unsigned int uint;
 typedef uint32_t address_t;
+typedef uint32_t far_ptr_t; // high word is seg, low word is offset
 
 typedef _Packed struct discriptor_t {
     uint32_t low;
@@ -63,6 +64,7 @@ typedef _Packed struct EBDAPrivate {
     uint16_t platform_io;
     address_t platform_ram;
     uint8_t address_lines;
+    uint8_t nmi_mask;
 
     uint32_t alloc_start;
     uint32_t alloc_pos;
