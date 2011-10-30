@@ -35,6 +35,7 @@
 #define CLI() __asm { cli}
 #define STI() __asm { sti}
 #define HALT() __asm { hlt}
+#define INT(x) __asm { int x}
 
 void call32(void);
 void unhandled_interrupt(void);
@@ -57,6 +58,7 @@ void unhandled_irq15(void);
 void pit_interrupt_handler();
 void rtc_interrupt_handler();
 void int15_handler();
+void int1a_handler();
 
 
 #define FUNC_OFFSET(function) (uint16_t)(function)
@@ -392,7 +394,7 @@ void on_pit_interrupt()
         platform_debug_print("tick");
     }
 
-    __asm { int 0x1c}
+    INT(0x1c);
 
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | 0);
 }
@@ -408,8 +410,9 @@ static void setup_pit_irq()
 static void setup_rtc_irq()
 {
     set_int_vec(0x70, get_cs(), FUNC_OFFSET(rtc_interrupt_handler));
-    outb(IO_PORT_PIC2 + 1, (inb(IO_PORT_PIC1 + 2) & ~(1 << PIC2_RTC_PIN)));
+    outb(IO_PORT_PIC2 + 1, (inb(IO_PORT_PIC2 + 1) & ~(1 << PIC2_RTC_PIN)));
     set_int_vec(0x15, get_cs(), FUNC_OFFSET(int15_handler));
+    set_int_vec(0x1a, get_cs(), FUNC_OFFSET(int1a_handler));
 }
 
 
@@ -520,9 +523,60 @@ void on_int15(UserRegs __far * context)
 }
 
 
+void on_int1a(UserRegs __far * context)
+{
+    switch (REG_HI(context->ax)) {
+    case 0x02: // get_time
+        if ((rtc_read(0x0a) & RTC_REG_A_UPDATE_IN_PROGRESS)) {
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            break;
+        }
+
+        REG_HI(context->cx) = rtc_read(RTC_HOURS);
+        REG_LOW(context->cx) = rtc_read(RTC_MINUTES);
+        REG_HI(context->dx) = rtc_read(RTC_SECONDS);
+        REG_LOW(context->dx) = rtc_read(RTC_REGB) & 1;
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    case 0x06: { // set alarm
+        uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
+                                       OFFSET_OF(EBDAPrivate, bios_flags));
+        if ((flags & BIOS_FLAGS_ALRM_ACTIVE_MASK)) {
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            break;
+        }
+
+        // todo: verify that rtc clear AF on set/clear AIF?
+        rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_ALARM_MASK);
+        rtc_write(RTC_HOURS_ALARM, REG_HI(context->cx));
+        rtc_write(RTC_MINUTES_ALARM, REG_LOW(context->cx));
+        rtc_write(RTC_SECONDS_ALARM, REG_HI(context->dx));
+        rtc_write(0x0b, rtc_read(0x0b) | RTC_REG_B_ENABLE_ALARM_MASK);
+        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
+                        flags | BIOS_FLAGS_ALRM_ACTIVE_MASK);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    }
+    case 0x07: { // cancle alarm
+        uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
+                                       OFFSET_OF(EBDAPrivate, bios_flags));
+        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
+                        flags & ~BIOS_FLAGS_ALRM_ACTIVE_MASK);
+        rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_ALARM_MASK);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    }
+    default:
+        context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        REG_HI(context->ax) = 0x86;
+    }
+}
+
+
 void on_rtc_interrupt()
 {
     uint8_t regc;
+    uint8_t flags;
 
     regc = rtc_read(0x0c);
 
@@ -545,6 +599,15 @@ void on_rtc_interrupt()
         }
     }
 
+    flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
+
+    if ((flags & BIOS_FLAGS_ALRM_ACTIVE_MASK) && (regc & RTC_REG_C_ALARM_INTERRUPT_MASK)) {
+        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
+                        flags & ~BIOS_FLAGS_ALRM_ACTIVE_MASK);
+        rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_ALARM_MASK);
+        INT(0x4a);
+    }
+
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | 2);
     outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | 0);
 }
@@ -552,8 +615,6 @@ void on_rtc_interrupt()
 
 void init()
 {
-    char str[1024];
-
     post(POST_CODE_INIT16);
     init_bios_data_area();
 
@@ -562,13 +623,6 @@ void init()
     init_int_vector();
 
     platform_debug_print("log from 16bit");
-
-    format_str(str, "format str test: %%s %s %%u %u %%lu %lu %%llu %llu"
-                    " %%x %x %%lx %lx %%llx %llx",
-                    sizeof(str), (const char FAR *)"string",
-                    1020, 18283848, 192939495969,
-                    0x1020, 0x18283848, 0x1929394959697989);
-    platform_debug_print(str);
 
     setup_pit_irq();
     setup_rtc_irq();

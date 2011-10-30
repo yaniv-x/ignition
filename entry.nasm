@@ -176,7 +176,8 @@ _int%1_handler:
     iret
 %endmacro
 
-INT_HANDLER 15 ; org F000h:F859 in IBM PC and 100%-compatible BIOSes
+INT_HANDLER 15 ; org F000h:F859h in IBM PC and 100%-compatible BIOSes
+INT_HANDLER 1a ; org F000h:FE6Eh in IBM PC and 100%-compatible BIOSes
 
 _unhandled_interrupt:
     iret

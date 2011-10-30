@@ -65,11 +65,12 @@ typedef _Packed struct EBDAPrivate {
     address_t platform_ram;
     uint8_t address_lines;
     uint8_t nmi_mask;
+    uint8_t bios_flags;
 
     uint32_t alloc_start;
     uint32_t alloc_pos;
     uint32_t alloc_end;
-    uint32_t flags;
+    uint32_t stage1_flags;
     address_t activation_list;
     address_t io_bars;
     address_t mem_bars;

@@ -607,21 +607,21 @@ static int pci_enable_test(uint32_t bus, uint32_t device)
     case PCI_CLASS_MASS_STORAGE:
         if (type.sub_class == PCI_MASS_STORAGE_SUBCLASS_IDE &&
                 (~type.pro_if & 0x0a /*fixed mode of operation in primary or secondary channel*/)) {
-            if (globals->flags & FLAGS_IDE_RES_WAS_CLAIMED) {
+            if (globals->stage1_flags & FLAGS_IDE_RES_WAS_CLAIMED) {
                 return FALSE;
             }
 
-            globals->flags |= FLAGS_IDE_RES_WAS_CLAIMED;
+            globals->stage1_flags |= FLAGS_IDE_RES_WAS_CLAIMED;
         }
         break;
     case PCI_CLASS_DISPLAY:
         if (type.sub_class == PCI_DISPLAY_SUBCLASS_VGA &&
                                                        type.pro_if == PCI_VGA_PROGIF_VGACOMPAT) {
-            if (globals->flags & FLAGS_VGA_RES_WAS_CLAIMED) {
+            if (globals->stage1_flags & FLAGS_VGA_RES_WAS_CLAIMED) {
                 return FALSE;
             }
 
-            globals->flags |= FLAGS_VGA_RES_WAS_CLAIMED;
+            globals->stage1_flags |= FLAGS_VGA_RES_WAS_CLAIMED;
         }
         break;
     }
