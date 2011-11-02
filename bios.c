@@ -292,6 +292,15 @@ static void platform_debug_print(char FAR * str)
 }
 
 
+void freeze()
+{
+    for (;;) {
+        CLI();
+        HALT();
+    }
+}
+
+
 static inline void init_bios_data_area()
 {
     post(POST_CODE_BDA);
@@ -373,6 +382,7 @@ static void init_int_vector()
         set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
     }
 }
+
 
 void on_pit_interrupt()
 {
@@ -613,6 +623,163 @@ void on_rtc_interrupt()
 }
 
 
+static uint8_t kbd_receive_data()
+{
+    while (!(inb(IO_PORT_KBD_STATUS) & KBDCTRL_STATUS_DATA_READY_MASK)) {
+        //todo: add delay
+        platform_debug_print(__FUNCTION__ ": no pending data");
+    }
+
+    return inb(IO_PORT_KBD_DATA);
+}
+
+
+static uint8_t kbd_receive_keyboard_data()
+{
+    for (;;) {
+        uint8_t status;
+        uint8_t data;
+
+        status = inb(IO_PORT_KBD_STATUS);
+
+        if (!(status & KBDCTRL_STATUS_DATA_READY_MASK)) {
+            platform_debug_print(__FUNCTION__ ": no pending data");
+            //todo: add delay
+            continue;
+        }
+
+        data = inb(IO_PORT_KBD_DATA);
+
+        if ((status & KBDCTRL_STATUS_MOUSE_DATA_READY_MASK)) {
+            //todo: send data to mouse handler
+            platform_debug_print(__FUNCTION__ ": droping mouse data");
+            continue;
+        }
+
+        return data;
+    }
+}
+
+
+static uint8_t kbd_receive_mouse_data()
+{
+    for (;;) {
+        uint8_t status;
+        uint8_t data;
+
+        status = inb(IO_PORT_KBD_STATUS);
+
+        if (!(status & KBDCTRL_STATUS_DATA_READY_MASK)) {
+            platform_debug_print(__FUNCTION__ ": no pending data");
+            //todo: add delay
+            continue;
+        }
+
+        data = inb(IO_PORT_KBD_DATA);
+
+        if (!(status & KBDCTRL_STATUS_MOUSE_DATA_READY_MASK)) {
+            //todo: send data to keyboard handler
+            platform_debug_print(__FUNCTION__ ": droping keyboard data");
+            continue;
+        }
+
+        return data;
+    }
+}
+
+
+static void kbd_send_data(uint8_t val)
+{
+    uint8_t status;
+
+    while ((inb(IO_PORT_KBD_STATUS) & KBDCTRL_STATUS_WRITE_DISALLOWED_MASK)) {
+        //todo: add delay
+        platform_debug_print(__FUNCTION__ ": unable to write");
+    }
+
+    outb(IO_PORT_KBD_DATA, val);
+}
+
+
+static inline void init_keyboard()
+{
+    uint8_t command_byte;
+
+    post(POST_CODE_KEYBOARD);
+
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_SELF_TEST);
+
+    if (kbd_receive_data() != KBDCTRL_SELF_TEST_REPLAY) {
+        platform_debug_print(__FUNCTION__ ": keyboard self test failed, halting...");
+        freeze();
+    }
+
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_ENABLE_KEYBOARD);
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_KEYBOARD_INTERFACE_TEST);
+
+    if (kbd_receive_data()) {
+        platform_debug_print(__FUNCTION__ ": kbd interface failed, halting...");
+        freeze();
+    }
+
+    kbd_send_data(KBD_CMD_RESET);
+
+    if (kbd_receive_keyboard_data() != KBD_ACK ||
+                                            kbd_receive_keyboard_data() != KBD_SELF_TEST_REPLAY) {
+        platform_debug_print(__FUNCTION__ ": kbd reset failed, halting...");
+        freeze();
+    }
+
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_READ_COMMAND_BYTE);
+    command_byte = kbd_receive_data();
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_WRITE_COMMAND_BYTE);
+    outb(IO_PORT_KBD_DATA, command_byte | KBDCTRL_COMMAND_BYTE_IRQ1_MASK |
+                           KBDCTRL_COMMAND_BYTE_TRANSLATE_MASK);
+
+    kbd_send_data(KBD_CMD_ENABLE_SCANNING);
+    if (kbd_receive_keyboard_data() != KBD_ACK) {
+        platform_debug_print(__FUNCTION__ ": enable kbd failed, halting...");
+        freeze();
+    }
+}
+
+
+static inline void init_mouse()
+{
+    uint8_t command_byte;
+
+    post(POST_CODE_MOUSE);
+
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_ENABLE_MOUSE);
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_MOUSE_INTERFACE_TEST);
+
+    if (kbd_receive_data()) {
+        platform_debug_print(__FUNCTION__ ": mouse interface failed, halting...");
+        freeze();
+    }
+
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_WRITE_TO_MOUSE);
+    kbd_send_data(MOUSE_CMD_RESET);
+
+    if (kbd_receive_mouse_data() != KBD_ACK || kbd_receive_mouse_data() != KBD_SELF_TEST_REPLAY ||
+                                                                        kbd_receive_mouse_data()) {
+        platform_debug_print(__FUNCTION__ ": mouse reset failed, halting...");
+        freeze();
+    }
+
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_DISABLE_MOUSE);
+
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_READ_COMMAND_BYTE);
+    command_byte = kbd_receive_data();
+    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_WRITE_COMMAND_BYTE);
+    outb(IO_PORT_KBD_DATA, command_byte | KBDCTRL_COMMAND_BYTE_IRQ12_MASK);
+
+    bda_write_word(BDA_OFFSET_EQUIPMENT,
+                   bda_read_word(BDA_OFFSET_EQUIPMENT) | (1 << BDA_EQUIPMENT_MOUSE_BIT));
+}
+
+
+
 void init()
 {
     post(POST_CODE_INIT16);
@@ -628,6 +795,9 @@ void init()
     setup_rtc_irq();
 
     STI();
+
+    init_keyboard();
+    init_mouse();
 
     post(POST_CODE_TMP);
 
