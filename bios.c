@@ -465,21 +465,25 @@ void on_int15(UserRegs __far * context)
     case 0x83:
         switch (REG_LOW(context->ax)) {
         case 0: {
-            uint32_t micro = ((uint32_t)context->cx << 16) | context->dx;
+            uint32_t micro;
+
+            if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
+                context->ax = 0;
+                context->flags |= (1 << CPU_FLAGS_CF_BIT);
+                return;
+            }
+
+            micro = ((uint32_t)context->cx << 16) | context->dx;
 
             if (!micro) {
+                bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, 0);
                 write_dword(context->es, context->bx,
                             read_dword(context->es, context->bx) | BDA_WAIT_ELAPSED);
             } else {
-                if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
-                    context->ax = 0;
-                    context->flags |= (1 << CPU_FLAGS_CF_BIT);
-                    return;
-                }
-
                 REG_LOW(context->ax) = start_wait(((uint32_t)context->cx << 16) | context->dx,
                                                   ((uint32_t)context->es << 16) | context->bx);
             }
+
             context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
             break;
         }
@@ -487,7 +491,6 @@ void on_int15(UserRegs __far * context)
             rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
             bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
                            bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_IN_USE);
-            rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
             context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
             break;
         default:
@@ -495,20 +498,19 @@ void on_int15(UserRegs __far * context)
             REG_HI(context->ax) = 0x86;
         }
     case 0x86: {
-        uint32_t micro = ((uint32_t)context->cx << 16) |context->dx;
+        uint32_t micro;
 
-        if (!micro) {
-             bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
-                            bda_read_byte(BDA_OFFSET_WAIT_FLAGS) | BDA_WAIT_ELAPSED);
-        } else {
-            if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
-                context->ax = 0;
-                context->flags |= (1 << CPU_FLAGS_CF_BIT);
-                return;
-            }
+        if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
+            context->ax = 0;
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            return;
+        }
+
+        if ((micro = ((uint32_t)context->cx << 16) | context->dx)) {
 
             bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
                            bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_ELAPSED);
+
             start_wait(micro, ((uint32_t)BDA_SEG << 16) | BDA_OFFSET_WAIT_FLAGS);
 
             for (;;) {
@@ -521,6 +523,9 @@ void on_int15(UserRegs __far * context)
                 CLI();
             }
         }
+
+        bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
+                       bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_ELAPSED);
 
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         context->ax = 0;
@@ -594,29 +599,44 @@ void on_rtc_interrupt()
     ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c), 0);
     regc |= rtc_read(0x0c);
 
-    if ((regc & RTC_REG_C_PERIODIC_INTERRUPT_MASK) &&
-                                        (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE)) {
-        uint32_t counter = bda_read_dword(BDA_OFFSET_WAIT_COUNT_MICRO);
-        if (counter < BIOS_MICRO_PER_TICK) { // ~1 mili in mode 6
-            far_ptr_t ptr;
-            uint32_t val;
+    if ((regc & RTC_REG_C_PERIODIC_INTERRUPT_MASK)) {
+        if ((bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE)) {
+            uint32_t counter = bda_read_dword(BDA_OFFSET_WAIT_COUNT_MICRO);
 
-            bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, 0);
-            rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
-            ptr = bda_read_dword(BDA_OFFSET_WAIT_USR_PTR);
-            val = read_dword(ptr >> 16, ptr & 0xffff);
-            write_dword(ptr >> 16, ptr & 0xffff, (val | BDA_WAIT_ELAPSED));
-            bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
-                           bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_IN_USE);
+            if (counter < BIOS_MICRO_PER_TICK) { // ~1 mili in mode 6
+                far_ptr_t ptr;
+                uint32_t val;
+
+                bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, 0);
+                rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
+                ptr = bda_read_dword(BDA_OFFSET_WAIT_USR_PTR);
+                val = read_dword(ptr >> 16, ptr & 0xffff);
+                write_dword(ptr >> 16, ptr & 0xffff, (val | BDA_WAIT_ELAPSED));
+                bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
+                               bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_IN_USE);
+            } else {
+                bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, counter - BIOS_MICRO_PER_TICK);
+            }
         } else {
-            bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, counter - BIOS_MICRO_PER_TICK);
+            // unexpected
+            rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
         }
     }
 
     flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
 
-    if ((flags & BIOS_FLAGS_ALRM_ACTIVE_MASK) && (regc & RTC_REG_C_ALARM_INTERRUPT_MASK)) {
-        INT(0x4a);
+    if ((flags & BIOS_FLAGS_ALRM_ACTIVE_MASK)) {
+        if ((regc & RTC_REG_C_ALARM_INTERRUPT_MASK)) {
+            INT(0x4a);
+        } else {
+            // unexpected
+            rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_ALARM_MASK);
+        }
+    }
+
+    if ((regc & RTC_REG_C_UPDATE_INTERRUPT_MASK)) {
+        // unexpected.
+        rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_UPDATE_MASK);
     }
 
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | 2);
