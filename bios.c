@@ -292,7 +292,7 @@ static void platform_debug_print(char FAR * str)
 }
 
 
-void freeze()
+static void freeze()
 {
     for (;;) {
         CLI();
@@ -499,7 +499,7 @@ void on_int15(UserRegs __far * context)
 
         if (!micro) {
              bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
-             bda_read_byte(BDA_OFFSET_WAIT_FLAGS) | BDA_WAIT_ELAPSED);
+                            bda_read_byte(BDA_OFFSET_WAIT_FLAGS) | BDA_WAIT_ELAPSED);
         } else {
             if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
                 context->ax = 0;
@@ -551,17 +551,19 @@ void on_int1a(UserRegs __far * context)
     case 0x06: { // set alarm
         uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
                                        OFFSET_OF(EBDAPrivate, bios_flags));
+
         if ((flags & BIOS_FLAGS_ALRM_ACTIVE_MASK)) {
             context->flags |= (1 << CPU_FLAGS_CF_BIT);
             break;
         }
 
-        // todo: verify that rtc clear AF on set/clear AIF?
         rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_ALARM_MASK);
         rtc_write(RTC_HOURS_ALARM, REG_HI(context->cx));
         rtc_write(RTC_MINUTES_ALARM, REG_LOW(context->cx));
         rtc_write(RTC_SECONDS_ALARM, REG_HI(context->dx));
         rtc_write(0x0b, rtc_read(0x0b) | RTC_REG_B_ENABLE_ALARM_MASK);
+        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c),
+                        rtc_read(0x0c) & ~RTC_REG_C_ALARM_INTERRUPT_MASK); // AF barrier
         ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
                         flags | BIOS_FLAGS_ALRM_ACTIVE_MASK);
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
@@ -588,7 +590,9 @@ void on_rtc_interrupt()
     uint8_t regc;
     uint8_t flags;
 
-    regc = rtc_read(0x0c);
+    regc = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c));
+    ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c), 0);
+    regc |= rtc_read(0x0c);
 
     if ((regc & RTC_REG_C_PERIODIC_INTERRUPT_MASK) &&
                                         (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE)) {
@@ -612,9 +616,6 @@ void on_rtc_interrupt()
     flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
 
     if ((flags & BIOS_FLAGS_ALRM_ACTIVE_MASK) && (regc & RTC_REG_C_ALARM_INTERRUPT_MASK)) {
-        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
-                        flags & ~BIOS_FLAGS_ALRM_ACTIVE_MASK);
-        rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_ALARM_MASK);
         INT(0x4a);
     }
 

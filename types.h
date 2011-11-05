@@ -66,6 +66,7 @@ typedef _Packed struct EBDAPrivate {
     uint8_t address_lines;
     uint8_t nmi_mask;
     uint8_t bios_flags;
+    uint8_t rtc_reg_c;
 
     uint32_t alloc_start;
     uint32_t alloc_pos;
