@@ -212,7 +212,9 @@
                                  // is dword @ 11dh. leaving some space in order to be on the
                                  // safe side.
 
-#define BIOS_MICRO_PER_TICK 976
+#define BIOS_PERIODIC_MICRO 976
+#define BIOS_PERIODIC_USER_WAIT_SERVICE (1 << 0)
+#define BIOS_PERIODIC_USER_INTERNAL_DELAY (1 << 1)
 
 #define PRIVATE_OFFSET_SS 0
 #define PRIVATE_OFFSET_SP 2

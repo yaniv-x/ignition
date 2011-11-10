@@ -271,6 +271,20 @@ static uint16_t ebda_read_word(uint16_t offset)
 }
 
 
+static uint32_t ebda_read_dword(uint16_t offset)
+{
+    uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
+    return read_dword(seg, offset);
+}
+
+
+static void ebda_write_dword(uint16_t offset, uint32_t val)
+{
+    uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
+    write_dword(seg, offset, val);
+}
+
+
 static void platform_debug_print(char FAR * str)
 {
     uint16_t port = ebda_read_word(OFFSET_OF(EBDA, private) +
@@ -442,6 +456,39 @@ static uint8_t rtc_read(uint index)
 }
 
 
+static void rtc_periodic_ref(uint8_t user)
+{
+    uint8_t refs;
+
+    refs = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_priodoc_refs));
+
+    if (!refs) {
+        rtc_write(0x0a, (rtc_read(0x0a) & ~RTC_REG_A_RATE_MASK) | RTC_REG_A_RATE_976U);
+        rtc_write(0x0b, rtc_read(0x0b) | RTC_REG_B_ENABLE_PERIODIC_MASK);
+    }
+
+    refs |= user;
+
+    ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_priodoc_refs), refs);
+}
+
+
+static void rtc_periodic_unref(uint8_t user)
+{
+    uint8_t refs;
+
+    refs = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_priodoc_refs));
+
+    refs &= ~user;
+
+    ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_priodoc_refs), refs);
+
+    if (!refs) {
+        rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
+    }
+}
+
+
 static uint8_t start_wait(uint32_t micro, far_ptr_t usr_ptr)
 {
     uint8_t regb;
@@ -451,9 +498,7 @@ static uint8_t start_wait(uint32_t micro, far_ptr_t usr_ptr)
     bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, micro);
     bda_write_dword(BDA_OFFSET_WAIT_USR_PTR, usr_ptr);
 
-    rtc_write(0x0a, (rtc_read(0x0a) & ~RTC_REG_A_RATE_MASK) | RTC_REG_A_RATE_976U);
-    regb = rtc_read(0x0b) | RTC_REG_B_ENABLE_PERIODIC_MASK;
-    rtc_write(0x0b, regb);
+    rtc_periodic_ref(BIOS_PERIODIC_USER_WAIT_SERVICE);
 
     return regb;
 }
@@ -488,7 +533,7 @@ void on_int15(UserRegs __far * context)
             break;
         }
         case 1:
-            rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
+            rtc_periodic_unref(BIOS_PERIODIC_USER_WAIT_SERVICE);
             bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
                            bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_IN_USE);
             context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
@@ -600,24 +645,34 @@ void on_rtc_interrupt()
     regc |= rtc_read(0x0c);
 
     if ((regc & RTC_REG_C_PERIODIC_INTERRUPT_MASK)) {
-        if ((bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE)) {
-            uint32_t counter = bda_read_dword(BDA_OFFSET_WAIT_COUNT_MICRO);
+        uint32_t counter;
 
-            if (counter < BIOS_MICRO_PER_TICK) { // ~1 mili in mode 6
+        if ((bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE)) {
+            counter = bda_read_dword(BDA_OFFSET_WAIT_COUNT_MICRO);
+
+            if (counter < BIOS_PERIODIC_MICRO) { // ~1 mili in mode 6
                 far_ptr_t ptr;
                 uint32_t val;
 
                 bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, 0);
-                rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
+                rtc_periodic_unref(BIOS_PERIODIC_USER_WAIT_SERVICE);
                 ptr = bda_read_dword(BDA_OFFSET_WAIT_USR_PTR);
                 val = read_dword(ptr >> 16, ptr & 0xffff);
                 write_dword(ptr >> 16, ptr & 0xffff, (val | BDA_WAIT_ELAPSED));
                 bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
                                bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_IN_USE);
             } else {
-                bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, counter - BIOS_MICRO_PER_TICK);
+                bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, counter - BIOS_PERIODIC_MICRO);
             }
-        } else {
+        }
+
+        counter = ebda_read_dword(OFFSET_OF(EBDA, private) +
+                                  OFFSET_OF(EBDAPrivate, rtc_priodoc_ticks));
+
+        ebda_write_dword(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_priodoc_ticks),
+                         counter + 1);
+
+        if (!ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_priodoc_refs))) {
             // unexpected
             rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_PERIODIC_MASK);
         }
@@ -644,10 +699,43 @@ void on_rtc_interrupt()
 }
 
 
+static void delay(uint32_t milisec)
+{
+    uint64_t micro;
+
+    if (!milisec) {
+        return;
+    }
+
+    micro = (uint64_t)milisec * 1000 + BIOS_PERIODIC_MICRO;
+
+    ebda_write_dword(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_priodoc_ticks), 0);
+    rtc_periodic_ref(BIOS_PERIODIC_USER_INTERNAL_DELAY);
+
+    for (;;) {
+        uint64_t t;
+
+        STI();
+        HALT();
+        CLI();
+
+        t = ebda_read_dword(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_priodoc_ticks));
+        t *= BIOS_PERIODIC_MICRO;
+
+        if (t >= micro) {
+            break;
+        }
+
+    }
+
+    rtc_periodic_unref(BIOS_PERIODIC_USER_INTERNAL_DELAY);
+}
+
+
 static uint8_t kbd_receive_data()
 {
     while (!(inb(IO_PORT_KBD_STATUS) & KBDCTRL_STATUS_DATA_READY_MASK)) {
-        //todo: add delay
+        delay(10);
         platform_debug_print(__FUNCTION__ ": no pending data");
     }
 
@@ -665,7 +753,7 @@ static uint8_t kbd_receive_keyboard_data()
 
         if (!(status & KBDCTRL_STATUS_DATA_READY_MASK)) {
             platform_debug_print(__FUNCTION__ ": no pending data");
-            //todo: add delay
+            delay(10);
             continue;
         }
 
@@ -692,7 +780,7 @@ static uint8_t kbd_receive_mouse_data()
 
         if (!(status & KBDCTRL_STATUS_DATA_READY_MASK)) {
             platform_debug_print(__FUNCTION__ ": no pending data");
-            //todo: add delay
+            delay(10);
             continue;
         }
 
@@ -714,11 +802,17 @@ static void kbd_send_data(uint8_t val)
     uint8_t status;
 
     while ((inb(IO_PORT_KBD_STATUS) & KBDCTRL_STATUS_WRITE_DISALLOWED_MASK)) {
-        //todo: add delay
+        delay(10);
         platform_debug_print(__FUNCTION__ ": unable to write");
     }
 
     outb(IO_PORT_KBD_DATA, val);
+}
+
+
+static void kbd_send_command(uint8_t val)
+{
+    outb(IO_PORT_KBD_COMMAND, val);
 }
 
 
@@ -728,15 +822,15 @@ static inline void init_keyboard()
 
     post(POST_CODE_KEYBOARD);
 
-    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_SELF_TEST);
+    kbd_send_command(KBDCTRL_CMD_SELF_TEST);
 
     if (kbd_receive_data() != KBDCTRL_SELF_TEST_REPLAY) {
         platform_debug_print(__FUNCTION__ ": keyboard self test failed, halting...");
         freeze();
     }
 
-    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_ENABLE_KEYBOARD);
-    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_KEYBOARD_INTERFACE_TEST);
+    kbd_send_command(KBDCTRL_CMD_ENABLE_KEYBOARD);
+    kbd_send_command(KBDCTRL_CMD_KEYBOARD_INTERFACE_TEST);
 
     if (kbd_receive_data()) {
         platform_debug_print(__FUNCTION__ ": kbd interface failed, halting...");
@@ -803,6 +897,8 @@ static inline void init_mouse()
 
 void init()
 {
+    uint i;
+
     post(POST_CODE_INIT16);
     init_bios_data_area();
 
@@ -821,6 +917,11 @@ void init()
     init_mouse();
 
     post(POST_CODE_TMP);
+
+    for ( i = 0; i < 10; i++) {
+        delay(2000);
+        platform_debug_print("post delay");
+    }
 
     for (;;) {
          __asm {

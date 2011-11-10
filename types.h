@@ -67,6 +67,8 @@ typedef _Packed struct EBDAPrivate {
     uint8_t nmi_mask;
     uint8_t bios_flags;
     uint8_t rtc_reg_c;
+    uint8_t rtc_priodoc_refs;
+    uint32_t rtc_priodoc_ticks;
 
     uint32_t alloc_start;
     uint32_t alloc_pos;
