@@ -171,6 +171,7 @@
 #define KBD_MAX_KEY_SCAN 0x58
 #define KBD_EXT_TRANS_START 0x47
 
+#define MOUSE_CMD_ENABLE_DATA_REPORTING 0xf4
 #define MOUSE_CMD_RESET 0xff
 
 #define KBD_ACK 0xfa

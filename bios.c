@@ -58,6 +58,7 @@ void unhandled_irq15(void);
 void pit_interrupt_handler();
 void rtc_interrupt_handler();
 void keyboard_interrupt_handler();
+void mouse_interrupt_handler();
 void int15_handler();
 void int16_handler();
 void int1a_handler();
@@ -1773,21 +1774,41 @@ static inline void init_keyboard()
 }
 
 
+void on_mouse_interrupt()
+{
+    uint8_t val;
+
+    val = inb(IO_PORT_KBD_STATUS);
+
+    if ((val & KBDCTRL_STATUS_DATA_READY_MASK)) {
+        if (!(val & KBDCTRL_STATUS_MOUSE_DATA_READY_MASK)) {
+            // unexpected.
+            bios_info(BIOS_INFO_MOUSE_INT_KBD_DATA);
+        } else {
+            val = inb(IO_PORT_KBD_DATA);
+        }
+    }
+
+    outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | PIC1_SLAVE_PIN);
+    outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | PIC2_MOUSE_PIN);
+}
+
+
 static inline void init_mouse()
 {
     uint8_t command_byte;
 
     post(POST_CODE_MOUSE);
 
-    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_ENABLE_MOUSE);
-    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_MOUSE_INTERFACE_TEST);
+    kbd_send_command(KBDCTRL_CMD_ENABLE_MOUSE);
+    kbd_send_command(KBDCTRL_CMD_MOUSE_INTERFACE_TEST);
 
     if (kbd_receive_data()) {
         platform_debug_print(__FUNCTION__ ": mouse interface failed, halting...");
         freeze();
     }
 
-    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_WRITE_TO_MOUSE);
+    kbd_send_command(KBDCTRL_CMD_WRITE_TO_MOUSE);
     kbd_send_data(MOUSE_CMD_RESET);
 
     if (kbd_receive_mouse_data() != KBD_ACK || kbd_receive_mouse_data() != KBD_SELF_TEST_REPLAY ||
@@ -1796,15 +1817,18 @@ static inline void init_mouse()
         freeze();
     }
 
-    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_DISABLE_MOUSE);
+    kbd_send_command(KBDCTRL_CMD_DISABLE_MOUSE);
 
-    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_READ_COMMAND_BYTE);
+    kbd_send_command(KBDCTRL_CMD_READ_COMMAND_BYTE);
     command_byte = kbd_receive_data();
-    outb(IO_PORT_KBD_COMMAND, KBDCTRL_CMD_WRITE_COMMAND_BYTE);
-    outb(IO_PORT_KBD_DATA, command_byte | KBDCTRL_COMMAND_BYTE_IRQ12_MASK);
+    kbd_send_command(KBDCTRL_CMD_WRITE_COMMAND_BYTE);
+    kbd_send_data(command_byte | KBDCTRL_COMMAND_BYTE_IRQ12_MASK);
 
     bda_write_word(BDA_OFFSET_EQUIPMENT,
                    bda_read_word(BDA_OFFSET_EQUIPMENT) | (1 << BDA_EQUIPMENT_MOUSE_BIT));
+
+    set_int_vec(0x74, get_cs(), FUNC_OFFSET(mouse_interrupt_handler));
+    outb(IO_PORT_PIC2 + 1, (inb(IO_PORT_PIC2 + 1) & ~(1 << PIC2_MOUSE_PIN)));
 }
 
 

@@ -153,6 +153,7 @@ _%1_interrupt_handler:
 IRQ_HANDLER pit ; org F000h:FEA5h in IBM PC and 100%-compatible BIOSes
 IRQ_HANDLER rtc
 IRQ_HANDLER keyboard ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes
+IRQ_HANDLER mouse
 
 %macro INT_HANDLER 1
 extern _on_int%1

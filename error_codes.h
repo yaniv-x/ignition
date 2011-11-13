@@ -41,6 +41,7 @@ enum {
 
 enum {
     BIOS_INFO_KBD_INT_MOUSE_DATA = 1,
+    BIOS_INFO_MOUSE_INT_KBD_DATA,
 };
 
 
