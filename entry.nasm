@@ -135,6 +135,9 @@ _%1_interrupt_handler:
     push fs
     push gs
 
+    mov ax, cs
+    mov ds, ax
+
     ; todo: use irq stack
     call _on_%1_interrupt
 
@@ -149,7 +152,7 @@ _%1_interrupt_handler:
 
 IRQ_HANDLER pit ; org F000h:FEA5h in IBM PC and 100%-compatible BIOSes
 IRQ_HANDLER rtc
-
+IRQ_HANDLER keyboard ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes
 
 %macro INT_HANDLER 1
 extern _on_int%1
@@ -160,6 +163,9 @@ _int%1_handler:
     push es
     push fs
     push gs
+
+    mov ax, cs
+    mov ds, ax
 
     mov ax, sp
     push ss
@@ -177,6 +183,7 @@ _int%1_handler:
 %endmacro
 
 INT_HANDLER 15 ; org F000h:F859h in IBM PC and 100%-compatible BIOSes
+INT_HANDLER 16 ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes
 INT_HANDLER 1a ; org F000h:FE6Eh in IBM PC and 100%-compatible BIOSes
 
 _unhandled_interrupt:

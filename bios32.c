@@ -27,6 +27,7 @@
 #include "types.h"
 #include "defs.h"
 #include "nox.h"
+#include "error_codes.h"
 
 #include "common.c"
 
@@ -40,6 +41,14 @@
         platform_debug_string(__FUNCTION__ ": ASSERT("#x") failed. halting...");    \
     }                                                                               \
     halt();                                                                         \
+}
+
+#define DBG_MESSAGE(format, ...) {                                      \
+    if (globals->platform_ram) {                                        \
+        format_str((uint8_t*)globals->platform_ram, format,             \
+                   PLATFORM_LOG_BUF_SIZE, ## __VA_ARGS__);              \
+        outb(globals->platform_io + PLATFORM_IO_LOG, 0);                \
+    }                                                                   \
 }
 
 #define ALIGN(a, b) (((a) + ((b) - 1)) & ~((b) - 1))
@@ -762,7 +771,9 @@ static void init_platform()
     if (globals->below_1m_used_pages > (MB - ((640 + 128) * KB) >> PAGE_SHIFT) ||
                                     globals->below_4g_used_pages > globals->below_4g_pages ||
                                     below_4g_sum > 4 * (GB >> PAGE_SHIFT)) {
-        outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, PLATFORM_ERR_INVALID_ARG);
+        uint32_t err_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_ERROR, PLATFORM_ERR_SUBSYS_BIOS,
+                                            BIOS_ERROR_INVALID_PLATFORM_ARGS);
+        outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, err_code);
         halt();
     }
 
@@ -1239,13 +1250,16 @@ static inline void init_pic()
 }
 
 
-static void notify_error(uint32_t err)
+static void notify_error(uint16_t err)
 {
+    uint32_t err_code;
+
     if (!globals->platform_io) {
         return;
     }
 
-    outd(globals->platform_io + PLATFORM_IO_ERROR, err);
+    err_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_ERROR, PLATFORM_ERR_SUBSYS_BIOS, err);
+    outd(globals->platform_io + PLATFORM_IO_ERROR, err_code);
 }
 
 
@@ -1269,6 +1283,8 @@ void init()
     ASSERT(OFFSET_OF(EBDAPrivate, real_mode_ss) == PRIVATE_OFFSET_SS);
     ASSERT(OFFSET_OF(EBDAPrivate, real_mode_sp) == PRIVATE_OFFSET_SP);
 
+    DBG_MESSAGE("sizeof(EBDA) is %u", sizeof(EBDA));
+
     init_cpu();
     init_rtc();
     init_mem();
@@ -1277,7 +1293,7 @@ void init()
 
     ret_16();
 
-    notify_error(PLATFORM_ERR_UNEXPECTED);
+    notify_error(BIOS_ERROR_UNEXPECTED_IP);
     halt();
 }
 
