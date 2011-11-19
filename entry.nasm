@@ -33,6 +33,8 @@ group DGROUP _TEXT
 
 extern _init
 extern _on_unhandled_irq
+extern _set_irq_context
+extern _clear_irq_context
 
 
 global _unhandled_interrupt
@@ -88,8 +90,8 @@ entry:
     xor ax, ax
     mov ds, ax
     mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
-    mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_SS]
-    mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_SP]
+    mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_REAL_MODE_SS]
+    mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_REAL_MODE_SP]
 
     pop ds
     pop es
@@ -129,8 +131,18 @@ UNHANDLE_IRQ 15
 extern _on_%1_interrupt
 global _%1_interrupt_handler
 _%1_interrupt_handler:
-    pusha
     push ds
+    push ax
+
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS], ss
+    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP], sp
+    mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SS]
+    mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SP]
+
+    pusha
     push es
     push fs
     push gs
@@ -138,14 +150,23 @@ _%1_interrupt_handler:
     mov ax, cs
     mov ds, ax
 
-    ; todo: use irq stack
+    call _set_irq_context
     call _on_%1_interrupt
+    call _clear_irq_context
 
     pop gs
     pop fs
     pop es
-    pop ds
     popa
+
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS]
+    mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP]
+
+    pop ax
+    pop ds
 
     iret
 %endmacro
@@ -212,8 +233,8 @@ _call32:
     xor ax, ax
     mov ds, ax
     mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
-    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_SS], ss
-    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_SP], sp
+    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_REAL_MODE_SS], ss
+    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_REAL_MODE_SP], sp
     mov ds, dx
 
     mov bp, sp

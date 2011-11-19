@@ -52,6 +52,11 @@ typedef _Packed struct discriptor_reg_t {
 typedef _Packed struct EBDAPrivate {
     uint16_t real_mode_ss;
     uint16_t real_mode_sp;
+    uint16_t real_user_ss;
+    uint16_t real_user_sp;
+    uint16_t real_hard_int_ss;
+    uint16_t real_hard_int_sp;
+
     uint32_t below_1m_used_pages;
     uint32_t above_1m_pages;
     uint32_t below_4g_pages;

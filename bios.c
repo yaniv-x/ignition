@@ -33,7 +33,15 @@
 
 #define OFFSET_OF(type, member) ((uint16_t)&((type*)0)->member)
 #define CLI() __asm { cli}
-#define STI() __asm { sti}
+
+#define STI() {                                                 \
+    if (is_hard_int_context()) {                                \
+        bios_error(BIOS_ERROR_STI_WHILE_IN_IRQ_CONTEXT);        \
+    }                                                           \
+                                                                \
+    __asm { sti}                                                \
+}
+
 #define HALT() __asm { hlt}
 #define INT(x) __asm { int x}
 
@@ -287,6 +295,15 @@ static void ebda_write_dword(uint16_t offset, uint32_t val)
 }
 
 
+static void bios_error(uint16_t code)
+{
+    uint16_t error_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_ERROR, PLATFORM_ERR_SUBSYS_BIOS, code);
+    uint16_t port = ebda_read_word(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, platform_io));
+    outd(port + PLATFORM_IO_ERROR, error_code);
+    freeze();
+}
+
+
 static void bios_warn(uint16_t code)
 {
     uint16_t error_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_WARN, PLATFORM_ERR_SUBSYS_BIOS, code);
@@ -333,15 +350,44 @@ static void freeze()
 }
 
 
+static uint8_t is_hard_int_context()
+{
+    return ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags)) &
+           BIOS_FLAGS_HARD_INT;
+}
+
+
+void set_irq_context()
+{
+    uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
+
+    if ((flags & BIOS_FLAGS_HARD_INT)) {
+        bios_error(BIOS_ERROR_DOUBLE_HARD_INT);
+    }
+
+    ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
+                    flags | BIOS_FLAGS_HARD_INT);
+}
+
+
+void clear_irq_context()
+{
+    uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
+
+    ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
+                    flags & ~BIOS_FLAGS_HARD_INT);
+}
+
+
 static inline void init_bios_data_area()
 {
     post(POST_CODE_BDA);
 
     mem_reset(0, BIOS_DATA_AREA_ADDRESS, BIOS_DATA_AREA_SIZE);
-    mem_reset(BIOS_EXTENDED_DATA_AREA_ADDRESS >> 4, 0, BIOS_EXTENDED_DATA_AREA_KB * KB);
+    mem_reset(BIOS_EBDA_ADDRESS >> 4, 0, BIOS_EBDA_DATA_KB * KB);
 
-    bda_write_word(BDA_OFFSET_EBDA, BIOS_EXTENDED_DATA_AREA_ADDRESS >> 4);
-    ebda_write_byte(EBDA_OFFSET_SIZE, BIOS_EXTENDED_DATA_AREA_KB);
+    bda_write_word(BDA_OFFSET_EBDA, BIOS_EBDA_ADDRESS >> 4);
+    ebda_write_byte(EBDA_OFFSET_SIZE, BIOS_EBDA_SIZE_KB);
 }
 
 
@@ -366,8 +412,8 @@ static void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
 
 void on_unhandled_irq(uint16_t irq)
 {
-    char buf[100]; // todo: swich to private stack
-    format_str(buf, "unhandled irq %u", 100, irq);
+    char buf[100];
+    format_str(buf, "unhandled irq %u", sizeof(buf), irq);
     platform_debug_print(buf);
 
     if (irq > 7) {

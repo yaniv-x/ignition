@@ -987,6 +987,8 @@ static void init_globals()
     globals->alloc_start = DUMB_ALLOC_START;
     globals->alloc_end = DUMB_ALLOC_START + DUMB_ALLOC_SIZE;
     globals->alloc_pos = globals->alloc_start;
+    globals->real_hard_int_ss = BIOS_HARD_INT_STACK_ADDRESS >> 4;
+    globals->real_hard_int_sp = BIOS_HARD_INT_STACK_SIZE_KB * KB;
 
     eax = 0x80000008;
     cpuid(&eax, &ebx, &ecx, &edx);
@@ -1181,7 +1183,7 @@ static inline void init_mem()
 
     post(POST_CODE_MEM);
 
-    *BDA_WORD(BDA_OFFSET_MAIN_MEM_SIZE) = BASE_MEMORY_SIZE_KB - BIOS_EXTENDED_DATA_AREA_KB;
+    *BDA_WORD(BDA_OFFSET_MAIN_MEM_SIZE) = BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB;
 
     //640k base memory
     rtc_write(0x15, BASE_MEMORY_SIZE_KB);
@@ -1278,10 +1280,14 @@ void init()
 
     platform_debug_string("hello :)");
 
-    ASSERT(sizeof(EBDA) <= BIOS_EXTENDED_DATA_AREA_KB * KB);
-    ASSERT(*(uint16_t*)(bda + BDA_OFFSET_EBDA) == (BIOS_EXTENDED_DATA_AREA_ADDRESS >> 4));
-    ASSERT(OFFSET_OF(EBDAPrivate, real_mode_ss) == PRIVATE_OFFSET_SS);
-    ASSERT(OFFSET_OF(EBDAPrivate, real_mode_sp) == PRIVATE_OFFSET_SP);
+    ASSERT(sizeof(EBDA) <= BIOS_EBDA_DATA_KB * KB);
+    ASSERT(*(uint16_t*)(bda + BDA_OFFSET_EBDA) == (BIOS_EBDA_ADDRESS >> 4));
+    ASSERT(OFFSET_OF(EBDAPrivate, real_mode_ss) == PRIVATE_OFFSET_REAL_MODE_SS);
+    ASSERT(OFFSET_OF(EBDAPrivate, real_mode_sp) == PRIVATE_OFFSET_REAL_MODE_SP);
+    ASSERT(OFFSET_OF(EBDAPrivate, real_user_ss) == PRIVATE_OFFSET_USER_SS);
+    ASSERT(OFFSET_OF(EBDAPrivate, real_user_sp) == PRIVATE_OFFSET_USER_SP);
+    ASSERT(OFFSET_OF(EBDAPrivate, real_hard_int_ss) == PRIVATE_OFFSET_HARD_INT_SS);
+    ASSERT(OFFSET_OF(EBDAPrivate, real_hard_int_sp) == PRIVATE_OFFSET_HARD_INT_SP);
 
     DBG_MESSAGE("sizeof(EBDA) is %u", sizeof(EBDA));
 
