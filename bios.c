@@ -611,7 +611,7 @@ void on_int15(UserRegs __far * context)
 void on_int1a(UserRegs __far * context)
 {
     switch (REG_HI(context->ax)) {
-    case 0x02: // get_time
+    case INT1A_FUNC_GET_TIME:
         if ((rtc_read(0x0a) & RTC_REG_A_UPDATE_IN_PROGRESS)) {
             context->flags |= (1 << CPU_FLAGS_CF_BIT);
             break;
@@ -623,9 +623,10 @@ void on_int1a(UserRegs __far * context)
         REG_LOW(context->dx) = rtc_read(RTC_REGB) & 1;
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
-    case 0x06: { // set alarm
+    case INT1A_FUNC_SET_ALARM: {
         uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
                                        OFFSET_OF(EBDAPrivate, bios_flags));
+        uint8_t reg_c;
 
         if ((flags & BIOS_FLAGS_ALRM_ACTIVE_MASK)) {
             context->flags |= (1 << CPU_FLAGS_CF_BIT);
@@ -637,14 +638,18 @@ void on_int1a(UserRegs __far * context)
         rtc_write(RTC_MINUTES_ALARM, REG_LOW(context->cx));
         rtc_write(RTC_SECONDS_ALARM, REG_HI(context->dx));
         rtc_write(0x0b, rtc_read(0x0b) | RTC_REG_B_ENABLE_ALARM_MASK);
-        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c),
-                        rtc_read(0x0c) & ~RTC_REG_C_ALARM_INTERRUPT_MASK); // AF barrier
+
+        // AF barrier
+        reg_c = bda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c));
+        reg_c = (reg_c | rtc_read(0x0c)) & ~RTC_REG_C_ALARM_INTERRUPT_MASK;
+        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c), reg_c);
+
         ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
                         flags | BIOS_FLAGS_ALRM_ACTIVE_MASK);
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
     }
-    case 0x07: { // cancle alarm
+    case INT1A_FUNC_CANCEL_ALARM: {
         uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
                                        OFFSET_OF(EBDAPrivate, bios_flags));
         ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
@@ -724,12 +729,6 @@ void on_rtc_interrupt()
 }
 
 
-static void beep()
-{
-    platform_debug_print("beep");
-}
-
-
 static void delay(uint32_t milisec)
 {
     uint64_t micro;
@@ -760,6 +759,43 @@ static void delay(uint32_t milisec)
     }
 
     rtc_periodic_unref(BIOS_PERIODIC_USER_INTERNAL_DELAY);
+}
+
+
+static void hard_delay(uint32_t milisec)
+{
+    milisec++;
+
+    while (milisec) {
+        uint8_t reg_c = rtc_read(0x0c);
+
+        if ((reg_c & RTC_REG_C_PERIODIC_INTERRUPT_MASK)) {
+            milisec--;
+        }
+
+        reg_c |= ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c));
+        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c), reg_c);
+    }
+}
+
+
+static void beep()
+{
+    uint16_t countdown = PIT_FREQUENCY / BIOS_BEEP_Hz;
+    uint8_t misc;
+
+    // set timer 2: mode 3, 16bit, binary
+    outb(IO_PORT_TIMER_CONTROL, (2 << PIT_SELECTOR_SHIFT) |
+                                (3 << PIT_RW_SHIFT) |
+                                (3 << PIT_MODE_SHIFT));
+
+    outb(IO_PORT_TIMER_2, countdown);
+    outb(IO_PORT_TIMER_2, countdown >> 8);
+
+    misc = inb(IO_PORT_MISC);
+    outb(IO_PORT_MISC, misc | 0x3);
+    hard_delay(BIOS_BEEP_DURATION_MS);
+    outb(IO_PORT_MISC, (misc & ~0x3));
 }
 
 
@@ -1832,6 +1868,29 @@ static inline void init_mouse()
 }
 
 
+static void play_note(uint32_t frequency, uint duration)
+{
+    uint32_t countdown = 1193182UL / frequency;
+    uint8_t misc;
+
+    if (!countdown || countdown > 0xffff) {
+        return;
+    }
+
+    // set timer 2: mode 3, 16bit, binary
+    outb(IO_PORT_TIMER_CONTROL, (2 << PIT_SELECTOR_SHIFT) |
+                                (3 << PIT_RW_SHIFT) |
+                                (3 << PIT_MODE_SHIFT));
+
+    outb(IO_PORT_TIMER_2, countdown);
+    outb(IO_PORT_TIMER_2, countdown >> 8);
+
+    misc = inb(IO_PORT_MISC);
+    outb(IO_PORT_MISC, misc | 0x3);
+    delay(duration);
+    outb(IO_PORT_MISC, (misc & ~0x3));
+}
+
 
 void init()
 {
@@ -1849,12 +1908,28 @@ void init()
     setup_pit_irq();
     setup_rtc_irq();
 
-    STI();
-
     init_keyboard();
     init_mouse();
 
+    STI();
+
     post(POST_CODE_TMP);
+
+    //Octave 6
+    play_note(1046, 250);
+    delay(1000);
+    play_note(1175, 250);
+    delay(1000);
+    play_note(1328, 250);
+    delay(1000);
+    play_note(1397, 250);
+    delay(1000);
+    play_note(1568, 250);
+    delay(1000);
+    play_note(1760, 250);
+    delay(1000);
+    play_note(1975, 250);
+    delay(1000);
 
     for (;;) {
         uint8_t scan;
