@@ -136,11 +136,21 @@ static uint16_t get_ds()
     return data_seg;
 }
 
+
 static void restore_ds()
 {
    _asm {
         mov ax, cs
         mov ds, ax
+    }
+}
+
+
+static void freeze()
+{
+    for (;;) {
+        CLI();
+        HALT();
     }
 }
 
@@ -338,15 +348,6 @@ static void platform_debug_print(char FAR * str)
     outb(port + PLATFORM_IO_LOG, 0);
 
     put_eflags(flags);
-}
-
-
-static void freeze()
-{
-    for (;;) {
-        CLI();
-        HALT();
-    }
 }
 
 

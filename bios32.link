@@ -9,4 +9,5 @@ file lib32/i8m386.o
 
 option nodefaultlibs,offset=896k
 disable 1023
+disable 1014
 
