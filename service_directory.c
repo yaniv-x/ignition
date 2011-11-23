@@ -24,29 +24,37 @@
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef _H_ERROR_CODES
-#define _H_ERROR_CODES
+#include "types.h"
+#include "utils.h"
+#include "platform.h"
+
+#define PCI_SERVICE_SIGNATURE FOUR_CHARS('$PCI')
+
+void pcibios_service_entry(void);
 
 
-enum {
-    BIOS_ERROR_INVALID_PLATFORM_ARGS = 1,
-    BIOS_ERROR_UNEXPECTED_IP,
-    BIOS_ERROR_DOUBLE_HARD_INT,
-    BIOS_ERROR_STI_WHILE_IN_IRQ_CONTEXT,
-    BIOS_ERROR_OUT_OF_ROUTING_SLOTS,
-};
+void directory_service(UserRegs __far * context)
+{
+    platform_debug_string(__FUNCTION__);
 
+    context->eflags &= ~(1 << CPU_FLAGS_CF_BIT);
 
-enum {
-    BIOS_WARN_KBD_WRITE_BLOCKED = 1,
-};
+    if (context->ebx) {
+        AL(context) = 0x81;
+        return;
+    }
 
-
-enum {
-    BIOS_INFO_KBD_INT_MOUSE_DATA = 1,
-    BIOS_INFO_MOUSE_INT_KBD_DATA,
-};
-
-
-#endif
+    switch (context->eax) {
+    case PCI_SERVICE_SIGNATURE:
+        AL(context) = 0x00;
+        context->ebx = PROTECTED_START_ADDRESS;
+        context->ecx = PROTECTED_SIZE;
+        context->edx = (uint32_t)pcibios_service_entry;
+        DBG_MESSAGE("pcibios returned");
+        break;
+    default:
+        DBG_MESSAGE("no service 0x%x", context->eax);
+        AL(context) = 0x80;
+    }
+}
 

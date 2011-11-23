@@ -3,11 +3,17 @@ format raw bin
 
 file entry32.o
 file bios32.o
+file utils_32.o
+file pci_32.o
+file platform_32.o
+file service_directory.o
 file lib32/i8rs386.o
 file lib32/i8d.o
 file lib32/i8m386.o
 
 option nodefaultlibs,offset=896k
+option map
+
 disable 1023
 disable 1014
 

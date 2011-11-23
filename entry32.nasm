@@ -31,7 +31,9 @@ group DGROUP _TEXT
 %include "defs.inc"
 
 
-extern  _init
+extern _init
+extern _directory_service
+extern _pcibios_service
 
 
 start:
@@ -51,15 +53,76 @@ start:
     hlt
     jmp .infloop
 
-global _halt
-_halt:
-    cli
-.infloop:
-    hlt
-    jmp .infloop
-
 
 global _ret_16
 _ret_16:
     jmp dword CODE16_SEGMENT_SELECTOR:BACK_FROM_PM_START_ADDRESS
+
+
+; 32bit service directory
+align 16
+global DIRECTORY_SERVICE
+DIRECTORY_SERVICE:
+    db "_32_"
+    dd directory_service + 0xe0000
+    db 0            ; revision
+    db 1            ; size
+    db 0            ; checksum
+    times 5 db 0    ; resrved mbz
+
+
+directory_service:
+    ; all regs must be preserve except fot those that are use for output
+
+    pushfd
+    pushad
+    push ds
+    push es
+    push fs
+    push gs
+
+    cli
+    mov eax, esp
+    mov ebx, ss
+    push ebx
+    push eax
+    call _directory_service
+    add esp, 8
+
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    popad
+    popfd
+
+    retf
+
+global _pcibios_service_entry
+_pcibios_service_entry:
+    ; all regs must be preserve except fot those that are use for output
+
+    pushfd
+    pushad
+    push ds
+    push es
+    push fs
+    push gs
+
+    cli
+    mov eax, esp
+    mov ebx, ss
+    push ebx
+    push eax
+    call _pcibios_service
+    add esp, 8
+
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    popad
+    popfd
+
+    retf
 

@@ -27,15 +27,10 @@
 #ifndef _H_TYPES
 #define _H_TYPES
 
+#include "base_types.h"
 #include "defs.h"
+#include "pcibios.h"
 
-typedef unsigned __int8 uint8_t;
-typedef unsigned __int16 uint16_t;
-typedef unsigned __int32 uint32_t;
-typedef unsigned __int64 uint64_t;
-typedef unsigned int uint;
-typedef uint32_t address_t;
-typedef uint32_t far_ptr_t; // high word is seg, low word is offset
 
 typedef _Packed struct discriptor_t {
     uint32_t low;
@@ -87,10 +82,60 @@ typedef _Packed struct EBDAPrivate {
 } EBDAPrivate;
 
 
+typedef struct PrivateData {
+    uint8_t irq_routing_table_size;
+    IRQOption irq_routing_table[32];
+} PrivateData;
+
+
 typedef _Packed struct EBDA {
     uint8_t public[EBDA_PRIVATE_START];
     EBDAPrivate private;
 } EBDA;
+
+#ifdef _M_I86
+typedef _Packed struct UserRegs {
+    uint16_t gs;
+    uint16_t fs;
+    uint16_t es;
+    uint16_t ds;
+
+    uint32_t edi;
+    uint32_t esi;
+    uint32_t ebp;
+    uint32_t esp;
+    uint32_t ebx;
+    uint32_t edx;
+    uint32_t ecx;
+    uint32_t eax;
+
+    uint16_t ip;
+    uint16_t cs;
+    uint16_t flags;
+} UserRegs;
+#else
+typedef _Packed struct UserRegs {
+    uint16_t gs;
+    uint16_t _0;
+    uint16_t fs;
+    uint16_t _1;
+    uint16_t es;
+    uint16_t _2;
+    uint16_t ds;
+    uint16_t _3;
+
+    uint32_t edi;
+    uint32_t esi;
+    uint32_t ebp;
+    uint32_t esp;
+    uint32_t ebx;
+    uint32_t edx;
+    uint32_t ecx;
+    uint32_t eax;
+
+    uint32_t eflags;
+} UserRegs;
+#endif
 
 
 #endif

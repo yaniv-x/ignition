@@ -24,29 +24,22 @@
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef _H_ERROR_CODES
-#define _H_ERROR_CODES
+#ifndef _H_BASE_TYPES
+#define _H_BASE_TYPES
 
+typedef unsigned __int8 uint8_t;
+typedef unsigned __int16 uint16_t;
+typedef unsigned __int32 uint32_t;
+typedef unsigned __int64 uint64_t;
+typedef unsigned int uint;
+typedef uint32_t address_t;
+typedef uint32_t far_ptr_16_t; // high word is seg, low word is offset
 
-enum {
-    BIOS_ERROR_INVALID_PLATFORM_ARGS = 1,
-    BIOS_ERROR_UNEXPECTED_IP,
-    BIOS_ERROR_DOUBLE_HARD_INT,
-    BIOS_ERROR_STI_WHILE_IN_IRQ_CONTEXT,
-    BIOS_ERROR_OUT_OF_ROUTING_SLOTS,
-};
-
-
-enum {
-    BIOS_WARN_KBD_WRITE_BLOCKED = 1,
-};
-
-
-enum {
-    BIOS_INFO_KBD_INT_MOUSE_DATA = 1,
-    BIOS_INFO_MOUSE_INT_KBD_DATA,
-};
-
+#ifdef _M_I86
+typedef uint16_t offset_t;
+#else
+typedef uint32_t offset_t;
+#endif
 
 #endif
 

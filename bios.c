@@ -28,11 +28,9 @@
 #include "defs.h"
 #include "nox.h"
 #include "error_codes.h"
-
-#include "common.c"
-
-#define OFFSET_OF(type, member) ((uint16_t)&((type*)0)->member)
-#define CLI() __asm { cli}
+#include "utils.h"
+#include "platform.h"
+#include "pci.h"
 
 #define STI() {                                                 \
     if (is_hard_int_context()) {                                \
@@ -41,9 +39,6 @@
                                                                 \
     __asm { sti}                                                \
 }
-
-#define HALT() __asm { hlt}
-#define INT(x) __asm { int x}
 
 void call32(void);
 void unhandled_interrupt(void);
@@ -72,30 +67,6 @@ void int16_handler();
 void int1a_handler();
 
 #define FUNC_OFFSET(function) (uint16_t)(function)
-
-#define REG_HI(x) (((uint8_t FAR *)&x)[1])
-#define REG_LOW(x) (((uint8_t FAR *)&x)[0])
-
-
-typedef _Packed struct UserRegs {
-    uint16_t gs;
-    uint16_t fs;
-    uint16_t es;
-    uint16_t ds;
-
-    uint16_t di;
-    uint16_t si;
-    uint16_t bp;
-    uint16_t sp;
-    uint16_t bx;
-    uint16_t dx;
-    uint16_t cx;
-    uint16_t ax;
-
-    uint16_t ip;
-    uint16_t cs;
-    uint16_t flags;
-} UserRegs;
 
 
 static uint16_t set_ds(uint16_t data_seg)
@@ -142,15 +113,6 @@ static void restore_ds()
    _asm {
         mov ax, cs
         mov ds, ax
-    }
-}
-
-
-static void freeze()
-{
-    for (;;) {
-        CLI();
-        HALT();
     }
 }
 
@@ -330,27 +292,6 @@ static void bios_info(uint16_t code)
 }
 
 
-static void platform_debug_print(char FAR * str)
-{
-    uint16_t port = ebda_read_word(OFFSET_OF(EBDA, private) +
-                                   OFFSET_OF(EBDAPrivate, platform_io));
-
-    uint32_t flags = get_eflags();
-    CLI();
-
-    outb(port + PLATFORM_IO_SELECT, PLATFORM_REG_WRITE_POS);
-    outd(port + PLATFORM_IO_REGISTER, 0);
-
-    do {
-        outb(port + PLATFORM_IO_PUT_BYTE, *str);
-    } while (*str++);
-
-    outb(port + PLATFORM_IO_LOG, 0);
-
-    put_eflags(flags);
-}
-
-
 static uint8_t is_hard_int_context()
 {
     return ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags)) &
@@ -415,7 +356,7 @@ void on_unhandled_irq(uint16_t irq)
 {
     char buf[100];
     format_str(buf, "unhandled irq %u", sizeof(buf), irq);
-    platform_debug_print(buf);
+    platform_debug_string(buf);
 
     if (irq > 7) {
         outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | (irq % 8));
@@ -480,7 +421,7 @@ void on_pit_interrupt()
 
     if ((*counter % 36) == 0) {
         restore_ds();
-        platform_debug_print("tick");
+        platform_debug_string("tick");
     }
 
     INT(0x1c);
@@ -554,7 +495,7 @@ static void rtc_periodic_unref(uint8_t user)
 }
 
 
-static uint8_t start_wait(uint32_t micro, far_ptr_t usr_ptr)
+static uint8_t start_wait(uint32_t micro, far_ptr_16_t usr_ptr)
 {
     uint8_t regb;
 
@@ -571,30 +512,30 @@ static uint8_t start_wait(uint32_t micro, far_ptr_t usr_ptr)
 
 void on_int15(UserRegs __far * context)
 {
-    switch (REG_HI(context->ax)) {
+    switch (AH(context)) {
     case INT15_FUNC_KBD_INTERCEPT:
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         break;
     case INT15_FUNC_EVENT_WAIT_CTRL:
-        switch (REG_LOW(context->ax)) {
+        switch (AL(context)) {
         case INT15_EVENT_WAIT_SET: {
             uint32_t micro;
 
             if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
-                context->ax = 0;
+                AX(context) = 0;
                 context->flags |= (1 << CPU_FLAGS_CF_BIT);
                 return;
             }
 
-            micro = ((uint32_t)context->cx << 16) | context->dx;
+            micro = ((uint32_t)CX(context) << 16) | DX(context);
 
             if (!micro) {
                 bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, 0);
-                write_dword(context->es, context->bx,
-                            read_dword(context->es, context->bx) | BDA_WAIT_ELAPSED);
+                write_dword(context->es, BX(context),
+                            read_dword(context->es, BX(context)) | BDA_WAIT_ELAPSED);
             } else {
-                REG_LOW(context->ax) = start_wait(((uint32_t)context->cx << 16) | context->dx,
-                                                  ((uint32_t)context->es << 16) | context->bx);
+                AL(context) = start_wait(((uint32_t)CX(context) << 16) | DX(context),
+                                         ((uint32_t)context->es << 16) | BX(context));
             }
 
             context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
@@ -608,18 +549,18 @@ void on_int15(UserRegs __far * context)
             break;
         default:
             context->flags |= (1 << CPU_FLAGS_CF_BIT);
-            REG_HI(context->ax) = 0x86;
+            AH(context) = 0x86;
         }
     case INT15_FUNC_WAIT: {
         uint32_t micro;
 
         if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
-            context->ax = 0;
+            AX(context) = 0;
             context->flags |= (1 << CPU_FLAGS_CF_BIT);
             return;
         }
 
-        if ((micro = ((uint32_t)context->cx << 16) | context->dx)) {
+        if ((micro = ((uint32_t)CX(context) << 16) | DX(context))) {
 
             bda_write_byte(BDA_OFFSET_WAIT_FLAGS,
                            bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_ELAPSED);
@@ -641,7 +582,7 @@ void on_int15(UserRegs __far * context)
                        bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & ~BDA_WAIT_ELAPSED);
 
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
-        context->ax = 0;
+        AX(context) = 0;
         break;
     }
     case INT15_FUNC_DEVICE_BUSY:
@@ -650,24 +591,24 @@ void on_int15(UserRegs __far * context)
         break;
     default:
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
-        REG_HI(context->ax) = 0x86;
+        AH(context) = 0x86;
     }
 }
 
 
 void on_int1a(UserRegs __far * context)
 {
-    switch (REG_HI(context->ax)) {
+    switch (AH(context)) {
     case INT1A_FUNC_GET_TIME:
         if ((rtc_read(0x0a) & RTC_REG_A_UPDATE_IN_PROGRESS)) {
             context->flags |= (1 << CPU_FLAGS_CF_BIT);
             break;
         }
 
-        REG_HI(context->cx) = rtc_read(RTC_HOURS);
-        REG_LOW(context->cx) = rtc_read(RTC_MINUTES);
-        REG_HI(context->dx) = rtc_read(RTC_SECONDS);
-        REG_LOW(context->dx) = rtc_read(RTC_REGB) & 1;
+        CH(context) = rtc_read(RTC_HOURS);
+        CL(context) = rtc_read(RTC_MINUTES);
+        DH(context) = rtc_read(RTC_SECONDS);
+        DL(context) = rtc_read(RTC_REGB) & 1;
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
     case INT1A_FUNC_SET_ALARM: {
@@ -681,9 +622,9 @@ void on_int1a(UserRegs __far * context)
         }
 
         rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_ALARM_MASK);
-        rtc_write(RTC_HOURS_ALARM, REG_HI(context->cx));
-        rtc_write(RTC_MINUTES_ALARM, REG_LOW(context->cx));
-        rtc_write(RTC_SECONDS_ALARM, REG_HI(context->dx));
+        rtc_write(RTC_HOURS_ALARM, CH(context));
+        rtc_write(RTC_MINUTES_ALARM, CL(context));
+        rtc_write(RTC_SECONDS_ALARM, DH(context));
         rtc_write(0x0b, rtc_read(0x0b) | RTC_REG_B_ENABLE_ALARM_MASK);
 
         // AF barrier
@@ -705,9 +646,12 @@ void on_int1a(UserRegs __far * context)
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
     }
+    case INT1A_FUNC_PCIBIOS:
+        pcibios_service(context);
+        break;
     default:
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
-        REG_HI(context->ax) = 0x86;
+        AH(context) = 0x86;
     }
 }
 
@@ -728,7 +672,7 @@ void on_rtc_interrupt()
             counter = bda_read_dword(BDA_OFFSET_WAIT_COUNT_MICRO);
 
             if (counter < BIOS_PERIODIC_MICRO) { // ~1 mili in mode 6
-                far_ptr_t ptr;
+                far_ptr_16_t ptr;
                 uint32_t val;
 
                 bda_write_dword(BDA_OFFSET_WAIT_COUNT_MICRO, 0);
@@ -1080,7 +1024,7 @@ static void kbd_push_key(uint16_t key_val)
     uint16_t next = (tail + 2) % buf_size;
 
     if (head > 30 || tail > 30 || (tail & 1) || (head & 1)) {
-        platform_debug_print(__FUNCTION__ ": bad pointers");
+        platform_debug_string(__FUNCTION__ ": bad pointers");
         restart();
     }
 
@@ -1118,7 +1062,7 @@ static uint16_t kbd_pop_key()
     }
 
     if (head > 30 || tail > 30 || (tail & 1) || (head & 1)) {
-        platform_debug_print(__FUNCTION__ ": bad pointers");
+        platform_debug_string(__FUNCTION__ ": bad pointers");
         restart();
     }
 
@@ -1158,7 +1102,7 @@ static uint16_t kbd_peek_key()
     }
 
     if (head > 30 || tail > 30 || (tail & 1) || (head & 1)) {
-        platform_debug_print(__FUNCTION__ ": bad pointers");
+        platform_debug_string(__FUNCTION__ ": bad pointers");
         restart();
     }
 
@@ -1227,7 +1171,7 @@ static void kbd_warn_ext_scan(uint8_t scan)
     char str[30];
 
     format_str(str, "unhandled ext scan 0x%x", sizeof(str), scan);
-    platform_debug_print(str);
+    platform_debug_string(str);
 }
 
 
@@ -1236,7 +1180,7 @@ static void kbd_warn_scan(uint8_t scan)
     char str[30];
 
     format_str(str, "unhandled scan 0x%x", sizeof(str), scan);
-    platform_debug_print(str);
+    platform_debug_string(str);
 }
 
 
@@ -1324,7 +1268,7 @@ static uint8_t kbd_process_compound(uint8_t scan)
 
     if (flags_2 & BDA_KBD_FLAGS_2_E1) {
         // for now
-        platform_debug_print(__FUNCTION__ ": not unhandled 0xe1");
+        platform_debug_string(__FUNCTION__ ": not unhandled 0xe1");
         bda_write_word(BDA_OFFSET_KBD_FLAGS_2, flags_2 & ~BDA_KBD_FLAGS_2_E1);
         return TRUE;
     }
@@ -1367,7 +1311,7 @@ static uint8_t kbd_handle_leds(uint8_t scan)
     }
 
     if (scan != KBD_ACK) {
-        platform_debug_print("todo: reset the keyboard");
+        platform_debug_string("todo: reset the keyboard");
         freeze();
         return TRUE;
     }
@@ -1629,14 +1573,14 @@ void on_keyboard_interrupt()
 
 void on_int16(UserRegs __far * context)
 {
-    switch (REG_HI(context->ax)) {
+    switch (AH(context)) {
     case INT16_FUNC_READ_KEY:
     case INT16_FUNC_READ_KEY_EXT: {
         uint16_t key;
         uint8_t self_wait = FALSE;
 
         for (;;) {
-            if (REG_HI(context->ax) == INT16_FUNC_READ_KEY) {
+            if (AH(context) == INT16_FUNC_READ_KEY) {
                 key = kbd_pop_nonext_key();
             } else {
                 key = kbd_pop_key();
@@ -1673,7 +1617,7 @@ void on_int16(UserRegs __far * context)
             }
         }
 
-        context->ax = key; // ah scan, al ascii
+        AX(context) = key; // ah scan, al ascii
         break;
     }
     case INT16_FUNC_PEEK_KEY: {
@@ -1681,7 +1625,7 @@ void on_int16(UserRegs __far * context)
 
         if (key) {
             context->flags &= ~(1 << CPU_FLAGS_ZF_BIT);
-            context->ax = key;
+            AX(context) = key;
         } else {
             context->flags |= (1 << CPU_FLAGS_ZF_BIT);
         }
@@ -1693,7 +1637,7 @@ void on_int16(UserRegs __far * context)
 
         if (key) {
             context->flags &= ~(1 << CPU_FLAGS_ZF_BIT);
-            context->ax = key;
+            AX(context) = key;
         } else {
             context->flags |= (1 << CPU_FLAGS_ZF_BIT);
         }
@@ -1702,7 +1646,7 @@ void on_int16(UserRegs __far * context)
     }
     default:
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
-        REG_HI(context->ax) = 0x86;
+        AH(context) = 0x86;
     }
 }
 
@@ -1711,7 +1655,7 @@ static uint8_t kbd_receive_data()
 {
     while (!(inb(IO_PORT_KBD_STATUS) & KBDCTRL_STATUS_DATA_READY_MASK)) {
         delay(10);
-        platform_debug_print(__FUNCTION__ ": no pending data");
+        platform_debug_string(__FUNCTION__ ": no pending data");
     }
 
     return inb(IO_PORT_KBD_DATA);
@@ -1727,7 +1671,7 @@ static uint8_t kbd_receive_keyboard_data()
         status = inb(IO_PORT_KBD_STATUS);
 
         if (!(status & KBDCTRL_STATUS_DATA_READY_MASK)) {
-            platform_debug_print(__FUNCTION__ ": no pending data");
+            platform_debug_string(__FUNCTION__ ": no pending data");
             delay(10);
             continue;
         }
@@ -1736,7 +1680,7 @@ static uint8_t kbd_receive_keyboard_data()
 
         if ((status & KBDCTRL_STATUS_MOUSE_DATA_READY_MASK)) {
             //todo: send data to mouse handler
-            platform_debug_print(__FUNCTION__ ": droping mouse data");
+            platform_debug_string(__FUNCTION__ ": droping mouse data");
             continue;
         }
 
@@ -1754,7 +1698,7 @@ static uint8_t kbd_receive_mouse_data()
         status = inb(IO_PORT_KBD_STATUS);
 
         if (!(status & KBDCTRL_STATUS_DATA_READY_MASK)) {
-            platform_debug_print(__FUNCTION__ ": no pending data");
+            platform_debug_string(__FUNCTION__ ": no pending data");
             delay(10);
             continue;
         }
@@ -1763,7 +1707,7 @@ static uint8_t kbd_receive_mouse_data()
 
         if (!(status & KBDCTRL_STATUS_MOUSE_DATA_READY_MASK)) {
             //todo: send data to keyboard handler
-            platform_debug_print(__FUNCTION__ ": droping keyboard data");
+            platform_debug_string(__FUNCTION__ ": droping keyboard data");
             continue;
         }
 
@@ -1778,7 +1722,7 @@ static void kbd_send_data(uint8_t val)
 
     while ((inb(IO_PORT_KBD_STATUS) & KBDCTRL_STATUS_WRITE_DISALLOWED_MASK)) {
         delay(10);
-        platform_debug_print(__FUNCTION__ ": unable to write");
+        platform_debug_string(__FUNCTION__ ": unable to write");
     }
 
     outb(IO_PORT_KBD_DATA, val);
@@ -1800,7 +1744,7 @@ static inline void init_keyboard()
     kbd_send_command(KBDCTRL_CMD_SELF_TEST);
 
     if (kbd_receive_data() != KBDCTRL_SELF_TEST_REPLAY) {
-        platform_debug_print(__FUNCTION__ ": keyboard self test failed, halting...");
+        platform_debug_string(__FUNCTION__ ": keyboard self test failed, halting...");
         freeze();
     }
 
@@ -1808,7 +1752,7 @@ static inline void init_keyboard()
     kbd_send_command(KBDCTRL_CMD_KEYBOARD_INTERFACE_TEST);
 
     if (kbd_receive_data()) {
-        platform_debug_print(__FUNCTION__ ": kbd interface failed, halting...");
+        platform_debug_string(__FUNCTION__ ": kbd interface failed, halting...");
         freeze();
     }
 
@@ -1816,7 +1760,7 @@ static inline void init_keyboard()
 
     if (kbd_receive_keyboard_data() != KBD_ACK ||
                                             kbd_receive_keyboard_data() != KBD_SELF_TEST_REPLAY) {
-        platform_debug_print(__FUNCTION__ ": kbd reset failed, halting...");
+        platform_debug_string(__FUNCTION__ ": kbd reset failed, halting...");
         freeze();
     }
 
@@ -1828,7 +1772,7 @@ static inline void init_keyboard()
 
     kbd_send_data(KBD_CMD_GET_ID);
     if (kbd_receive_keyboard_data() != KBD_ACK) {
-        platform_debug_print(__FUNCTION__ ": enable kbd failed, halting...");
+        platform_debug_string(__FUNCTION__ ": enable kbd failed, halting...");
         freeze();
     }
 
@@ -1840,7 +1784,7 @@ static inline void init_keyboard()
 
     kbd_send_data(KBD_CMD_ENABLE_SCANNING);
     if (kbd_receive_keyboard_data() != KBD_ACK) {
-        platform_debug_print(__FUNCTION__ ": enable kbd failed, halting...");
+        platform_debug_string(__FUNCTION__ ": enable kbd failed, halting...");
         freeze();
     }
 
@@ -1887,7 +1831,7 @@ static inline void init_mouse()
     kbd_send_command(KBDCTRL_CMD_MOUSE_INTERFACE_TEST);
 
     if (kbd_receive_data()) {
-        platform_debug_print(__FUNCTION__ ": mouse interface failed, halting...");
+        platform_debug_string(__FUNCTION__ ": mouse interface failed, halting...");
         freeze();
     }
 
@@ -1896,7 +1840,7 @@ static inline void init_mouse()
 
     if (kbd_receive_mouse_data() != KBD_ACK || kbd_receive_mouse_data() != KBD_SELF_TEST_REPLAY ||
                                                                         kbd_receive_mouse_data()) {
-        platform_debug_print(__FUNCTION__ ": mouse reset failed, halting...");
+        platform_debug_string(__FUNCTION__ ": mouse reset failed, halting...");
         freeze();
     }
 
@@ -1950,7 +1894,7 @@ void init()
 
     init_int_vector();
 
-    platform_debug_print("log from 16bit");
+    platform_debug_string("log from 16bit");
 
     setup_pit_irq();
     setup_rtc_irq();
@@ -1996,12 +1940,12 @@ void init()
         ascii_str[0] = ascii;
 
         format_str(str, "scan 0x%x ascii 0x%x %s", sizeof(str), scan, ascii, ascii_str);
-        platform_debug_print(str);
+        platform_debug_string(str);
     }
 
     for ( i = 0; i < 10; i++) {
         delay(2000);
-        platform_debug_print("post delay");
+        platform_debug_string("post delay");
     }
 
     for (;;) {
@@ -2011,7 +1955,7 @@ void init()
             mov dx, 0x9680
             int 15h
         }
-        platform_debug_print("post wait");
+        platform_debug_string("post wait");
     }
 
     restart();

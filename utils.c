@@ -1,3 +1,4 @@
+
 /*
     Copyright (c) 2013 Yaniv Kamay,
     All rights reserved.
@@ -24,7 +25,11 @@
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-static inline void outb(uint16_t port, uint8_t val)
+#include "types.h"
+#include "utils.h"
+
+
+void outb(uint16_t port, uint8_t val)
 {
     _asm {
         mov dx, port
@@ -34,7 +39,7 @@ static inline void outb(uint16_t port, uint8_t val)
 }
 
 
-static inline void outw(uint16_t port, uint16_t val)
+void outw(uint16_t port, uint16_t val)
 {
     _asm {
         mov dx, port
@@ -44,7 +49,7 @@ static inline void outw(uint16_t port, uint16_t val)
 }
 
 
-static inline void outd(uint16_t port, uint32_t val)
+void outd(uint16_t port, uint32_t val)
 {
     _asm {
         mov dx, port
@@ -54,7 +59,7 @@ static inline void outd(uint16_t port, uint32_t val)
 }
 
 
-static inline uint8_t inb(uint16_t port)
+uint8_t inb(uint16_t port)
 {
     uint8_t val;
 
@@ -68,7 +73,7 @@ static inline uint8_t inb(uint16_t port)
 }
 
 
-static inline uint16_t inw(uint16_t port)
+uint16_t inw(uint16_t port)
 {
     uint16_t val;
 
@@ -82,7 +87,7 @@ static inline uint16_t inw(uint16_t port)
 }
 
 
-static inline uint32_t ind(uint16_t port)
+uint32_t ind(uint16_t port)
 {
     uint32_t val;
 
@@ -96,7 +101,7 @@ static inline uint32_t ind(uint16_t port)
 }
 
 
-static uint32_t get_eflags()
+uint32_t get_eflags()
 {
     uint32_t r;
 
@@ -110,7 +115,7 @@ static uint32_t get_eflags()
 }
 
 
-static void put_eflags(uint32_t flags)
+void put_eflags(uint32_t flags)
 {
     __asm {
        push flags
@@ -119,20 +124,28 @@ static void put_eflags(uint32_t flags)
 }
 
 
-static inline void post(uint8_t code)
+void post(uint8_t code)
 {
     outb(IO_PORT_POST_CODE, code);
 }
 
 
-static inline void restart()
+void restart()
 {
     outb(IO_PORT_SYSCTRL, 1 << SYSCTRL_RESET_BIT);
 }
 
 
+void freeze()
+{
+    for (;;) {
+        CLI();
+        HALT();
+    }
+}
 
-static int find_lsb_32(uint32_t val)
+
+int find_lsb_32(uint32_t val)
 {
     int i;
 
@@ -146,7 +159,7 @@ static int find_lsb_32(uint32_t val)
 }
 
 
-static int find_msb_32(uint32_t val)
+int find_msb_32(uint32_t val)
 {
     int i;
 
@@ -160,7 +173,7 @@ static int find_msb_32(uint32_t val)
 }
 
 
-static int find_lsb_64(uint64_t val)
+int find_lsb_64(uint64_t val)
 {
     int i;
 
@@ -174,7 +187,17 @@ static int find_lsb_64(uint64_t val)
 }
 
 
-static uint32_t format_put_x(char FAR *  dest, uint32_t len, uint64_t val, uint bits)
+uint32_t string_length(const uint8_t __far * str)
+{
+    uint32_t len = 0;
+
+    while (str[len]) len++;
+
+    return len;
+}
+
+
+static uint32_t format_put_x(char __far *  dest, uint32_t len, uint64_t val, uint bits)
 {
     static char conv_table[] = {
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
@@ -194,7 +217,7 @@ static uint32_t format_put_x(char FAR *  dest, uint32_t len, uint64_t val, uint 
 }
 
 
-static uint32_t format_put_u(char FAR *  dest, uint32_t len, uint64_t val)
+static uint32_t format_put_u(char __far *  dest, uint32_t len, uint64_t val)
 {
     uint32_t start_len = len;
     uint64_t tmp = val / 10;
@@ -211,7 +234,7 @@ static uint32_t format_put_u(char FAR *  dest, uint32_t len, uint64_t val)
 }
 
 
-static uint32_t format_put_str(char FAR *  dest, uint32_t len, char FAR * str)
+static  uint32_t format_put_str(char __far *  dest, uint32_t len, char __far * str)
 {
     uint32_t start_len;
 
@@ -227,7 +250,7 @@ static uint32_t format_put_str(char FAR *  dest, uint32_t len, char FAR * str)
 }
 
 
-static void format_str(char FAR *  dest, const char FAR * format, uint32_t len, ...)
+void format_str(char __far *  dest, const char __far * format, uint32_t len, ...)
 {
     uint32_t FAR * args = &len + 1;
     uint advance = 0;

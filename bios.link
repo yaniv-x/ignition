@@ -2,9 +2,13 @@ name bios.bin
 format dos com 
 file entry.o
 file bios.o
+file utils_16.o
+file pci_16.o
+file platform_16.o
 file lib16/i8d086.o
 file lib16/i8m086.o
 file lib16/u8rs086.o
+file lib16/i8ls086.o
 file lib16/i4d.o
 
 order

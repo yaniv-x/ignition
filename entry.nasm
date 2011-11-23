@@ -180,7 +180,7 @@ IRQ_HANDLER mouse
 extern _on_int%1
 global _int%1_handler
 _int%1_handler:
-    pusha
+    pushad
     push ds
     push es
     push fs
@@ -199,7 +199,7 @@ _int%1_handler:
     pop fs
     pop es
     pop ds
-    popa
+    popad
 
     iret
 %endmacro

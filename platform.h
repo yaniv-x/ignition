@@ -24,29 +24,19 @@
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef _H_ERROR_CODES
-#define _H_ERROR_CODES
+#ifndef _H_PLATFORM
+#define _H_PLATFORM
 
+#include "types.h"
 
-enum {
-    BIOS_ERROR_INVALID_PLATFORM_ARGS = 1,
-    BIOS_ERROR_UNEXPECTED_IP,
-    BIOS_ERROR_DOUBLE_HARD_INT,
-    BIOS_ERROR_STI_WHILE_IN_IRQ_CONTEXT,
-    BIOS_ERROR_OUT_OF_ROUTING_SLOTS,
-};
+#define BIOS_PRIVATE_READ(member, ptr)                                          \
+    platform_read(PLATFORM_BIOS_DATA_START + OFFSET_OF(PrivateData, member),    \
+                  ptr, SIZE_OF(PrivateData, member))
 
-
-enum {
-    BIOS_WARN_KBD_WRITE_BLOCKED = 1,
-};
-
-
-enum {
-    BIOS_INFO_KBD_INT_MOUSE_DATA = 1,
-    BIOS_INFO_MOUSE_INT_KBD_DATA,
-};
-
+void platform_read(uint32_t offset, void __far * in_dest, uint32_t size);
+void platform_write(uint32_t offset, const void __far * in_src, uint32_t size);
+void platform_command(uint8_t cmd, void __far * args, uint32_t args_size);
+void platform_debug_string(const char __far * str);
 
 #endif
 

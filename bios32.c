@@ -28,106 +28,15 @@
 #include "defs.h"
 #include "nox.h"
 #include "error_codes.h"
+#include "utils.h"
+#include "pci.h"
+#include "platform.h"
 
-#include "common.c"
-
-
-#define OFFSET_OF(type, member) ((uint32_t)&((type*)0)->member)
 
 #define globals get_ebda_private()
 
-#define ASSERT(x) if (!(x)) {                                                       \
-    if (globals->platform_ram) {                                                    \
-        platform_debug_string(__FUNCTION__ ": ASSERT("#x") failed. halting...");    \
-    }                                                                               \
-    halt();                                                                         \
-}
 
-#define DBG_MESSAGE(format, ...) {                                      \
-    if (globals->platform_ram) {                                        \
-        format_str((uint8_t*)globals->platform_ram, format,             \
-                   PLATFORM_LOG_BUF_SIZE, ## __VA_ARGS__);              \
-        outb(globals->platform_io + PLATFORM_IO_LOG, 0);                \
-    }                                                                   \
-}
-
-#define ALIGN(a, b) (((a) + ((b) - 1)) & ~((b) - 1))
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-
-void halt(void);
 void ret_16(void);
-
-enum {
-    PCI_ADDRESS_INDEX_SHIFT = 2,
-    PCI_ADDRESS_INDEX_BITS = 6,
-    PCI_ADDRESS_FUNCTION_SHIFT = 8,
-    PCI_ADDRESS_FUNCTION_BITS = 3,
-    PCI_ADDRESS_DEVICE_SHIFT = 11,
-    PCI_ADDRESS_DEVICE_BITS = 5,
-    PCI_ADDRESS_BUS_SHIFT = 16,
-    PCI_ADDRESS_BUS_BITS = 8,
-    PCI_ADDRESS_ENABLED_MASK = (1 << 31),
-    PCI_ADDRESS_MASK = ~((1 << 2) - 1),
-
-    PCI_BUS_MASK = (1 << PCI_ADDRESS_BUS_BITS) - 1,
-    PCI_BUS_MAX = PCI_BUS_MASK,
-    PCI_DEVICE_MASK = (1 << PCI_ADDRESS_DEVICE_BITS) - 1,
-    PCI_DEVICE_MAX = PCI_DEVICE_MASK,
-    PCI_FUNCTION_MASK = (1 << PCI_ADDRESS_FUNCTION_BITS) - 1,
-    PCI_FUNCTION_MAX = PCI_FUNCTION_MASK,
-    PCI_INDEX_MASK = (1 << PCI_ADDRESS_INDEX_BITS) - 1,
-    PCI_INDEX_MAX = PCI_INDEX_MASK,
-
-    PCI_VENDOE_INVALID = 0xffff,
-
-    PCI_OFFSET_VENDOR = 0x00,
-    PCI_OFFSET_DEVICE = 0x02,
-    PCI_OFFSET_COMMAND = 0x04,
-    PCI_OFFSET_STATUS = 0x06,
-    PCI_OFFSET_REVISION = 0x08,
-    PCI_OFFSET_CLASS = 0x09,
-    PCI_OFFSET_CACHE_LINE = 0x0c,
-    PCI_OFFSET_CACHE_LATENCY = 0x0d,
-    PCI_OFFSET_BAR_0 = 0x10,
-    PCI_OFFSET_BAR_1 = 0x14,
-    PCI_OFFSET_BAR_2 = 0x18,
-    PCI_OFFSET_BAR_3 = 0x1c,
-    PCI_OFFSET_BAR_4 = 0x20,
-    PCI_OFFSET_BAR_5 = 0x24,
-    PCI_OFFSET_SUBSYS_VENDOR = 0x2c,
-    PCI_OFFSET_SUBSYS_ID = 0x2e,
-    PCI_OFFSET_ROM_ADDRESS = 0x30,
-    PCI_OFFSET_INTERRUPT_LINE = 0x3c,
-    PCI_OFFSET_INTERRUPT_PIN = 0x3d,
-
-    PCI_COMMAND_ENABLE_IO = (1 << 0),
-    PCI_COMMAND_ENABLE_MEM = (1 << 1),
-    PCI_COMMAND_BUS_MASTER = (1 << 2),
-    PCI_COMMAND_DISABLE_INTERRUPT = (1 << 10),
-
-    PCI_BAR_IO_MASK = (1 << 0),
-    PCI_BAR_IO_ADDRESS_MASK = ~0x3,
-    PCI_BAR_MEM_ADDRESS_MASK = ~0xf,
-
-    PCI_ROM_ENABLE_MASK = 1,
-    PCI_ROM_FIRST_ADDRESS_BIT = 11,
-    PCI_ROM_MIN_SIZE = (1 << PCI_ROM_FIRST_ADDRESS_BIT),
-    PCI_ROM_ADDRESS_MASK = ~(PCI_ROM_MIN_SIZE - 1),
-    PCI_ROM_MAX_SIZE = 16 * MB,
-
-    PCI_BASE_IO_ADDRESS = 0xc000,
-    PCI_NUM_BARS = 6,
-
-    PCI_MEMTYPE_32 = 0,
-    PCI_MEMTYPE_64 = 2,
-
-    PCI_IO_MIN_SIZE = 4,
-    PCI_IO_MAX_SIZE = 256,
-
-    PCI_MEM_MIN_SIZE = 16,
-};
-
 
 #define PCI_CLASS_MASS_STORAGE 0x01
 #define PCI_MASS_STORAGE_SUBCLASS_IDE 0x01
@@ -177,13 +86,11 @@ typedef struct PCIDeviceType {
 
 static uint8_t* bda = (uint8_t*)BIOS_DATA_AREA_ADDRESS;
 
-static void platform_debug_string(const char* str);
-
 
 static inline void post_and_halt(uint8_t code)
 {
     post(code);
-    halt();
+    freeze();
 }
 
 
@@ -261,16 +168,6 @@ static void mem_reset(void* from, uint32_t n)
 }
 
 
-static uint32_t string_length(const uint8_t* str)
-{
-    uint32_t len = 0;
-
-    while (str[len]) len++;
-
-    return len;
-}
-
-
 static void string_copy(uint8_t* dest, const uint8_t* src, uint32_t buf_size)
 {
     const uint8_t* end;
@@ -301,63 +198,16 @@ static EBDAPrivate* get_ebda_private()
 }
 
 
-static inline uint32_t pci_config_address(uint32_t bus, uint32_t device, uint32_t index)
+static void bios_error(uint16_t err)
 {
-    uint32_t function = 0;
+    uint32_t err_code;
 
-    ASSERT(bus <= PCI_BUS_MAX && device <= PCI_DEVICE_MAX && index <= PCI_INDEX_MAX);
+    if (globals->platform_io) {
+        err_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_ERROR, PLATFORM_ERR_SUBSYS_BIOS, err);
+        outd(globals->platform_io + PLATFORM_IO_ERROR, err_code);
+    }
 
-    return  PCI_ADDRESS_ENABLED_MASK |
-            ((bus & PCI_BUS_MAX) << PCI_ADDRESS_BUS_SHIFT) |
-            ((device & PCI_DEVICE_MAX) << PCI_ADDRESS_DEVICE_SHIFT) |
-            ((function & PCI_FUNCTION_MAX)  << PCI_ADDRESS_FUNCTION_SHIFT) |
-            ((index & PCI_INDEX_MAX) << PCI_ADDRESS_INDEX_SHIFT);
-}
-
-
-static uint32_t pci_read_32(uint32_t bus, uint32_t device, uint32_t offset)
-{
-    ASSERT((offset & 0x3) == 0);
-    outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
-    return ind(IO_PORT_PCI_DATA);
-}
-
-
-static void pci_write_32(uint32_t bus, uint32_t device, uint32_t offset, uint32_t val)
-{
-    ASSERT((offset & 0x3) == 0);
-    outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
-    outd(IO_PORT_PCI_DATA, val);
-}
-
-
-static uint16_t pci_read_16(uint32_t bus, uint32_t device, uint32_t offset)
-{
-    ASSERT((offset & 0x1) == 0);
-    outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
-    return inw(IO_PORT_PCI_DATA + (offset & 0x2));
-}
-
-
-static void pci_write_16(uint32_t bus, uint32_t device, uint32_t offset, uint16_t val)
-{
-    ASSERT((offset & 0x1) == 0);
-    outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
-    outw(IO_PORT_PCI_DATA + (offset & 0x2), val);
-}
-
-
-static uint16_t pci_read_8(uint32_t bus, uint32_t device, uint32_t offset)
-{
-    outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
-    return inb(IO_PORT_PCI_DATA + (offset & 0x3));
-}
-
-
-static void pci_write_8(uint32_t bus, uint32_t device, uint32_t offset, uint8_t val)
-{
-    outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
-    outb(IO_PORT_PCI_DATA + (offset & 0x3), val);
+    freeze();
 }
 
 
@@ -394,40 +244,6 @@ static void platform_notify_debug_string()
 }
 
 
-static void platform_debug_string(const char* str)
-{
-    if (!globals->platform_ram) {
-        return;
-    }
-
-    string_copy((uint8_t*)globals->platform_ram, str, PLATFORM_LOG_BUF_SIZE);
-    outb(globals->platform_io + PLATFORM_IO_LOG, 0);
-}
-
-
-typedef int (*pci_for_each_cb)(uint32_t bus, uint32_t device);
-
-static void pci_for_each(pci_for_each_cb cb)
-{
-    uint32_t bus;
-    uint32_t device;
-
-    for (bus = 0; bus <= PCI_BUS_MAX; bus++) {
-        for (device = 0; device <= PCI_DEVICE_MAX; device++) {
-            uint16_t vendor_id = pci_read_16(bus, device, PCI_OFFSET_VENDOR);
-
-            if (vendor_id == PCI_VENDOE_INVALID) {
-                continue;
-            }
-
-            if (cb(bus, device)) {
-                return;
-            }
-        }
-    }
-}
-
-
 static inline uint32_t pci_bar_to_size(uint32_t bar)
 {
     uint32_t mask = (bar & PCI_BAR_IO_MASK) ? PCI_BAR_IO_ADDRESS_MASK : PCI_BAR_MEM_ADDRESS_MASK;
@@ -443,7 +259,7 @@ static inline uint64_t pci_bar64_to_size(uint64_t bar)
 }
 
 
-static int pci_disable_device(uint32_t bus, uint32_t device)
+static int pci_disable_device(uint32_t bus, uint32_t device, void __far * opaque)
 {
     uint16_t command = pci_read_16(bus, device, PCI_OFFSET_COMMAND);
     command &= ~(PCI_COMMAND_ENABLE_IO | PCI_COMMAND_ENABLE_MEM);
@@ -453,7 +269,7 @@ static int pci_disable_device(uint32_t bus, uint32_t device)
 }
 
 
-static int pci_enable_device(uint32_t bus, uint32_t device)
+static int pci_enable_device(uint32_t bus, uint32_t device, void __far * opaque)
 {
     uint16_t command = pci_read_16(bus, device, PCI_OFFSET_COMMAND);
     command |= (PCI_COMMAND_ENABLE_IO | PCI_COMMAND_ENABLE_MEM);
@@ -638,7 +454,8 @@ static int pci_enable_test(uint32_t bus, uint32_t device)
     return TRUE;
 }
 
-static int pci_collect_resources(uint32_t bus, uint32_t device)
+
+static int pci_collect_resources(uint32_t bus, uint32_t device, void __far * opaque)
 {
     uint32_t exp_rom_bar;
     uint bar = 0;
@@ -771,10 +588,7 @@ static void init_platform()
     if (globals->below_1m_used_pages > (MB - ((640 + 128) * KB) >> PAGE_SHIFT) ||
                                     globals->below_4g_used_pages > globals->below_4g_pages ||
                                     below_4g_sum > 4 * (GB >> PAGE_SHIFT)) {
-        uint32_t err_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_ERROR, PLATFORM_ERR_SUBSYS_BIOS,
-                                            BIOS_ERROR_INVALID_PLATFORM_ARGS);
-        outd(PCI_BASE_IO_ADDRESS + PLATFORM_IO_ERROR, err_code);
-        halt();
+        bios_error(BIOS_ERROR_INVALID_PLATFORM_ARGS);
     }
 
     globals->pci32_hole_start = (globals->above_1m_pages << PAGE_SHIFT) + MB;
@@ -922,7 +736,7 @@ static void pci_activation()
         uint device = descriptor->device;
         uint8_t interrupt_pin;
 
-        pci_enable_device(bus, device);
+        pci_enable_device(bus, device, NULL);
 
         pci_get_class(bus, device, &type);
 
@@ -957,8 +771,8 @@ static void pci_activation()
 
 static void init_pci()
 {
-    pci_for_each(pci_disable_device);
-    pci_for_each(pci_collect_resources);
+    pci_for_each(pci_disable_device, NULL);
+    pci_for_each(pci_collect_resources, NULL);
     pci_asign_io();
 
     if (!pci_asign_mem32((PCIBarResouce*)globals->mem_bars)) {
@@ -970,6 +784,46 @@ static void init_pci()
     }
 
     pci_activation();
+}
+
+
+static int pci_add_routing(uint32_t bus, uint32_t device, void __far * opaque)
+{
+    PrivateData* p = (PrivateData*)(globals->platform_ram + PLATFORM_BIOS_DATA_START);
+    uint index = p->irq_routing_table_size;
+    IRQOption *ent;
+
+    if (index == sizeof(p->irq_routing_table) / sizeof(p->irq_routing_table[0])) {
+        bios_error(BIOS_ERROR_OUT_OF_ROUTING_SLOTS);
+    }
+
+    ent = &p->irq_routing_table[index];
+
+    ent->bus = bus;
+    ent->device = device << 3;
+    ent->int_a_link = index * 4;
+    ent->int_b_link = index * 4 + 1;
+    ent->int_c_link = index * 4 + 2;
+    ent->int_d_link = index * 4 + 3;
+    ent->int_a_bitmap = NOX_PCI_IRQ_LINES_MASK;
+    ent->int_b_bitmap = ent->int_a_bitmap;
+    ent->int_c_bitmap = ent->int_b_bitmap;
+    ent->int_d_bitmap = ent->int_c_bitmap;
+    ent->slot = 0;
+    ent->reserved = 0;
+
+    p->irq_routing_table_size++;
+
+    return FALSE;
+}
+
+
+static void init_irq_routing()
+{
+    PrivateData* p = (PrivateData*)(globals->platform_ram + PLATFORM_BIOS_DATA_START);
+    p->irq_routing_table_size = 0;
+
+    pci_for_each(pci_add_routing, NULL);
 }
 
 
@@ -1019,7 +873,7 @@ static inline void init_cpu()
     if (get_eflags() == flags) {
         // no cpuid support
         platform_debug_string(__FUNCTION__ ": failed");
-        halt();
+        freeze();
     }
 
     put_eflags(flags);
@@ -1029,7 +883,7 @@ static inline void init_cpu()
 
     if ((edx & MANDATORY_CPU_FEATURES_MASK) != MANDATORY_CPU_FEATURES_MASK) {
         platform_debug_string(__FUNCTION__ ": failed");
-        halt();
+        freeze();
     }
 
     *EBDA_BYTE(EBDA_OFFSET_CPU_FAMILY) = eax & 0xf;
@@ -1043,7 +897,7 @@ static inline void init_cpu()
 
     if (globals->address_lines > NOX_ADDRESS_LINES) {
         platform_debug_string(__FUNCTION__ ": address lines conflict");
-        halt();
+        freeze();
     }
 }
 
@@ -1117,7 +971,7 @@ static void setup_mttr()
     if (!(mtrr_cap & MTRR_CAP_FIX_MASK) || !(mtrr_cap & MTRR_CAP_WC_MASK)
         || (mtrr_var_count = (mtrr_cap & MTRR_CAP_COUNT_MASK)) < MTRR_MAX_VAR) {
         platform_debug_string(__FUNCTION__ ": unsuported MTRR");
-        halt();
+        freeze();
     }
 
     mtrr_default = MTRR_DEFAULT_FIXED_ENABLE_MASK | MTRR_DEFAULT_ENABLE_MASK; // default type is UC
@@ -1142,7 +996,7 @@ static void setup_mttr()
         while (bytes) {
             if (slot == mtrr_var_count) {
                 platform_debug_string(__FUNCTION__ ": out of var slot");
-                halt();
+                freeze();
             }
 
             if (bytes < MID_RAM_RANGE_ALIGMENT_MB * MB) {
@@ -1160,7 +1014,7 @@ static void setup_mttr()
 
     if (mtrr_var_count - slot < (globals->above_4g_pages ? 2 : 1)) {
         platform_debug_string(__FUNCTION__ ": out of var slot");
-        halt();
+        freeze();
     }
 
     size = to_power_of_two(globals->below_4g_used_pages) << PAGE_SHIFT;
@@ -1246,22 +1100,9 @@ static inline void init_pic()
     outb(IO_PORT_PIC2 + 1, PIC1_SLAVE_PIN);
     outb(IO_PORT_PIC2 + 1, PIC_ICW4_8086_MODE);
     outb(IO_PORT_PIC2 + 1, 0xff); // mask all
-    outb(IO_PORT_ELCR2, ~((1 << PIC2_RTC_PIN) | (1 << PIC2_MOUSE_PIN) | (1 << PIC2_DMA_PIN)));
+    outb(IO_PORT_ELCR2, ~((1 << PIC2_RTC_PIN) | (1 << PIC2_DMA_PIN)));
 
     outb(IO_PORT_PIC1 + 1, ~0x04); // unmask slave
-}
-
-
-static void notify_error(uint16_t err)
-{
-    uint32_t err_code;
-
-    if (!globals->platform_io) {
-        return;
-    }
-
-    err_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_ERROR, PLATFORM_ERR_SUBSYS_BIOS, err);
-    outd(globals->platform_io + PLATFORM_IO_ERROR, err_code);
 }
 
 
@@ -1272,7 +1113,7 @@ void init()
     enable_a20();
     init_globals();
     detect_platform();
-    pci_for_each(pci_disable_device);
+    pci_for_each(pci_disable_device, NULL);
     early_map_platform_io();
     init_platform();
     init_pci();
@@ -1296,10 +1137,10 @@ void init()
     init_mem();
     init_pit();
     init_pic();
+    init_irq_routing();
 
     ret_16();
 
-    notify_error(BIOS_ERROR_UNEXPECTED_IP);
-    halt();
+    bios_error(BIOS_ERROR_UNEXPECTED_IP);
 }
 
