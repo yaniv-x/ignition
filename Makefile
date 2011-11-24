@@ -31,7 +31,6 @@ AUTO_GEN = defs.inc
 
 %.o : %.c
 	@mkdir -p $(DEP_DIR)
-	@rm -f $@
 	$(C_COMPILE) -fr=/dev/null -i=.. -ad=$(DEP_FILE) $<
 	@cp $(DEP_FILE) $(DEP_FILE).tmp
 	@sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' -e '/^$$/ d' -e 's/$$/ :/' \
@@ -56,14 +55,18 @@ AUTO_GEN = defs.inc
 	nasm -f obj -o $@ $<
 
 
+.DELETE_ON_ERROR:
+
+
 ignition.bin : bios.bin bios32.bin
 	cp bios32.bin ignition.bin
 	cat bios.bin >> $@
 
 
-bios32.bin : $(AUTO_GEN) $(OBJECTS_32)
+bios32.bin : $(AUTO_GEN) $(OBJECTS_32) fixup
 	$(LINK) option q @bios32.link
 	@echo output size is $$(stat -c%s $@)
+	@./fixup $@ $(subst .bin,.map, $@) DIRECTORY_SERVICE,16,10
 	[[ $$(stat -c%s $@) -le 65536 ]]
 	[[ $$(stat -c%s $@) -eq 65536 ]] || dd bs=1 count=1 seek=65535 if=/dev/zero of=$@
 
@@ -74,13 +77,15 @@ bios.bin : $(AUTO_GEN) $(OBJECTS_16)
 	[[ $$(stat -c%s $@) -le 65520 ]]
 	dd bs=1 count=16 seek=65520 if=jump.bin of=$@
 
+fixup : fixup.c
+	gcc -O0 -g -o fixup fixup.c
 
 jump.bin : jump.nasm
 	nasm -f bin -o $@ $<
 
 
 clean :
-	rm -f *.o *.bin defs.inc bios32.map
+	rm -f *.o *.bin defs.inc bios32.map fixup
 	rm -rf .deps
 
 
