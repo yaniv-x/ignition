@@ -197,63 +197,67 @@ uint32_t string_length(const uint8_t __far * str)
 }
 
 
-static uint32_t format_put_x(char __far *  dest, uint32_t len, uint64_t val, uint bits)
+static void format_put_x(format_str_cb cb, void __far * opaque, uint64_t val, uint bits)
 {
     static char conv_table[] = {
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
         'a', 'b', 'c', 'd', 'e', 'f',
     };
 
-    uint32_t start_len = len;
     int shift = bits - 4;
 
     while (shift && !((val >> shift) & 0xf)) shift -=4;
 
-    for (; len && shift >= 0 ; len--, dest++, shift -= 4) {
-        *dest = conv_table[(val >> shift) & 0xf];
+    for (; shift >= 0 ; shift -= 4) {
+        cb(opaque, conv_table[(val >> shift) & 0xf]);
     }
-
-    return start_len - len;
 }
 
 
-static uint32_t format_put_u(char __far *  dest, uint32_t len, uint64_t val)
+static void format_put_u(format_str_cb cb, void __far * opaque, uint64_t val)
 {
-    uint32_t start_len = len;
     uint64_t tmp = val / 10;
     uint64_t div = 1;
 
     for (; tmp; div *= 10, tmp /= 10);
 
-    for (; len && div; div /= 10, len--, dest++) {
-        *dest = 0x30 + val / div;
+    for (; div; div /= 10) {
+        cb(opaque, 0x30 + val / div);
         val %= div;
     }
-
-    return start_len - len;
 }
 
 
-static  uint32_t format_put_str(char __far *  dest, uint32_t len, char __far * str)
+static void format_put_str(format_str_cb cb, void __far * opaque, const char * str)
 {
     uint32_t start_len;
 
     if (!str) {
-        return format_put_str(dest, len, "NULL");
+        format_put_str(cb, opaque, "NULL");
+        return;
     }
 
-    start_len = len;
-
-    for (; len && *str; len--, str++, dest++) *dest = *str;
-
-    return start_len - len;
+    for (; *str; str++) cb(opaque, *str);
 }
 
 
-void format_str(char __far *  dest, const char __far * format, uint32_t len, ...)
+static void format_put_far_str(format_str_cb cb, void __far * opaque, const char __far * str)
 {
-    uint32_t FAR * args = &len + 1;
-    uint advance = 0;
+    uint32_t start_len;
+
+    if (!str) {
+        format_put_str(cb, opaque, "NULL");
+        return;
+    }
+
+    for (; *str; str++) cb(opaque, *str);
+}
+
+
+void format_str(format_str_cb cb, void __far * opaque, const char __far * format,
+                uint8_t __far * args)
+{
+    uint consumed = FALSE;
     uint length = 0;
 
     enum {
@@ -270,11 +274,7 @@ void format_str(char __far *  dest, const char __far * format, uint32_t len, ...
 
     int stage = FORMAT_STATE_ORDINARY;
 
-    if (!len--) {
-        return;
-    }
-
-    for (; *format && len; format++) {
+    for (; *format; format++) {
         if (*format == '%') {
             if (!stage) {
                 stage = FORMAT_STATE_START;
@@ -290,8 +290,7 @@ void format_str(char __far *  dest, const char __far * format, uint32_t len, ...
         }
 
         if (!stage) {
-            *dest++ = *format;
-            --len;
+            cb(opaque, *format);
             continue;
         }
 
@@ -301,55 +300,58 @@ void format_str(char __far *  dest, const char __far * format, uint32_t len, ...
             uint bits;
 
             if (length == FORMAT_LENGTH_LL) {
-                val = *(uint64_t FAR *)args;
-                args += 2;
+                val = POP_STACK_ARG(uint64_t, args);
                 bits = 64;
             } else {
 #ifdef _M_I86
                 if (length == FORMAT_LENGTH_L) {
-                    val = *args++;
+                    val = POP_STACK_ARG(uint32_t, args);
                     bits = 32;
                 } else {
-                    uint16_t FAR * short_arg = (uint16_t FAR *)args;
-                    val = *short_arg++;
-                    args = (uint32_t FAR *)short_arg;
+                    val = POP_STACK_ARG(uint16_t, args);
                     bits = 16;
                 }
 #else
-                val = *args++;
+                val = POP_STACK_ARG(uint32_t, args);
                 bits = 32;
 #endif
             }
 
-            advance = format_put_x(dest, len, val, bits);
-
+            format_put_x(cb, opaque, val, bits);
+            consumed = TRUE;
             break;
         }
         case 'u': {
             uint64_t val;
 
             if (length == FORMAT_LENGTH_LL) {
-                val = *(uint64_t FAR *)args;
-                args += 2;
+                val = POP_STACK_ARG(uint64_t, args);
             } else {
 #ifdef _M_I86
                 if (length == FORMAT_LENGTH_L) {
-                    val = *args++;
+                    val = POP_STACK_ARG(uint32_t, args);
                 } else {
-                    uint16_t FAR * short_arg = (uint16_t FAR *)args;
-                    val = *short_arg;
-                    args = (uint32_t FAR *)(short_arg + 1);
+                    val = POP_STACK_ARG(uint16_t, args);
                 }
 #else
-                val = *args++;
+                val = POP_STACK_ARG(uint32_t, args);
 #endif
             }
-            advance = format_put_u(dest, len, val);
+
+            format_put_u(cb, opaque, val);
+            consumed = TRUE;
             break;
         }
-        case 's':
-            advance = format_put_str(dest, len, (char FAR *)*args++);
+        case 's': {
+            format_put_str(cb, opaque, POP_STACK_ARG(const char *, args));
+            consumed = TRUE;
             break;
+        }
+        case 'S': {
+            format_put_far_str(cb, opaque, POP_STACK_ARG(const char __far *, args));
+            consumed = TRUE;
+            break;
+        }
         case 'l':
             stage = FORMAT_STATE_LENGTH;
 
@@ -364,22 +366,56 @@ void format_str(char __far *  dest, const char __far * format, uint32_t len, ...
             }
 
             // invalid format
-            len = 0;
-            break;
+            return;
         default:
             // invalid format
-            len = 0;
+            return;
         }
 
-        if (advance) {
-            len -= advance;
-            dest += advance;
+        if (consumed) {
             stage = FORMAT_STATE_ORDINARY;
-            advance = 0;
+            consumed = FALSE;
             length = 0;
         }
     }
+}
 
-    *dest = 0;
+
+typedef struct FormatMemStr {
+    char __far *  dest;
+    uint pos;
+    uint end;
+} FormatMemStr;
+
+
+static void format_str_mem_cb(void __far * opaque, char ch)
+{
+    FormatMemStr __far * data = ( FormatMemStr __far *)opaque;
+
+    if (data->pos == data->end) {
+        return;
+    }
+
+    data->dest[data->pos++] = ch;
+}
+
+
+void format_mem_str(char __far *  dest, uint len, const char __far * format, ...)
+{
+    uint8_t __far * args;
+    FormatMemStr data;
+
+    if (len == 0) {
+        return;
+    }
+
+    data.dest = dest;
+    data.pos = 0;
+    data.end = len - 1;
+
+    args = (uint8_t __far *)&format;
+    format_str(format_str_mem_cb, &data, format, SKIP_STACK_ARG(const char __far *, args));
+
+    dest[data.pos] = 0;
 }
 

@@ -31,6 +31,7 @@ AUTO_GEN = defs.inc
 
 %.o : %.c
 	@mkdir -p $(DEP_DIR)
+	@rm -f $@
 	$(C_COMPILE) -fr=/dev/null -i=.. -ad=$(DEP_FILE) $<
 	@cp $(DEP_FILE) $(DEP_FILE).tmp
 	@sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' -e '/^$$/ d' -e 's/$$/ :/' \

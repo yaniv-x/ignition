@@ -355,7 +355,7 @@ static void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
 void on_unhandled_irq(uint16_t irq)
 {
     char buf[100];
-    format_str(buf, "unhandled irq %u", sizeof(buf), irq);
+    format_mem_str(buf, sizeof(buf), "unhandled irq %u", irq);
     platform_debug_string(buf);
 
     if (irq > 7) {
@@ -1170,7 +1170,7 @@ static void kbd_warn_ext_scan(uint8_t scan)
 {
     char str[30];
 
-    format_str(str, "unhandled ext scan 0x%x", sizeof(str), scan);
+    format_mem_str(str, sizeof(str), "unhandled ext scan 0x%x", scan);
     platform_debug_string(str);
 }
 
@@ -1179,7 +1179,7 @@ static void kbd_warn_scan(uint8_t scan)
 {
     char str[30];
 
-    format_str(str, "unhandled scan 0x%x", sizeof(str), scan);
+    format_mem_str(str, sizeof(str), "unhandled scan 0x%x", scan);
     platform_debug_string(str);
 }
 
@@ -1939,7 +1939,7 @@ void init()
 
         ascii_str[0] = ascii;
 
-        format_str(str, "scan 0x%x ascii 0x%x %s", sizeof(str), scan, ascii, ascii_str);
+        format_mem_str(str, sizeof(str), "scan 0x%x ascii 0x%x %s", scan, ascii, ascii_str);
         platform_debug_string(str);
     }
 

@@ -70,10 +70,13 @@ void platform_write(uint32_t offset, const void __far * in_src, uint32_t size)
 
 void platform_debug_string(const char __far * str)
 {
-    NO_INTERRUPT();
+    uint32_t eflags = get_eflags();
+    CLI();
 
     platform_write(PLATFORM_LOG_BUF_START, str, string_length(str) + 1);
     outb(pci_get_platform_io() + PLATFORM_IO_LOG, 0);
+
+    put_eflags(eflags);
 }
 
 
@@ -82,5 +85,50 @@ void platform_command(uint8_t cmd, void __far * args, uint32_t args_size)
     ASSERT(args_size <= PLATFORM_CMD_BUF_SIZE);
     platform_write(PLATFORM_CMD_BUF_START, args, args_size);
     outb(pci_get_platform_io() + PLATFORM_IO_CMD, cmd);
+}
+
+
+typedef struct PlatformPrintf {
+    uint pos;
+    uint end;
+    uint16_t port;
+} PlatformPrintf;
+
+
+static void platform_printf_cb(void __far * opaque, char ch)
+{
+    PlatformPrintf __far * data = (PlatformPrintf __far *)opaque;
+
+    if (data->pos == data->end) {
+        return;
+    }
+
+    outb(data->port + PLATFORM_IO_BYTE, ch);
+    data->pos++;
+}
+
+
+void platform_printf(const char __far * format, ...)
+{
+    uint8_t __far * args;
+    PlatformPrintf data;
+    uint32_t eflags = get_eflags();
+
+    CLI();
+
+    data.pos = 0;
+    data.end = PLATFORM_LOG_BUF_SIZE - 1;
+    data.port = pci_get_platform_io();
+
+    outb(data.port + PLATFORM_IO_SELECT, PLATFORM_REG_WRITE_POS);
+    outd(data.port + PLATFORM_IO_REGISTER, PLATFORM_LOG_BUF_START);
+
+    args = (uint8_t __far *)&format;
+    format_str(platform_printf_cb, &data, format, SKIP_STACK_ARG(const char __far *, args));
+
+    outb(data.port + PLATFORM_IO_BYTE, 0);
+    outb(pci_get_platform_io() + PLATFORM_IO_LOG, 0);
+
+    put_eflags(eflags);
 }
 

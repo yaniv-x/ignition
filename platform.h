@@ -37,6 +37,7 @@ void platform_read(uint32_t offset, void __far * in_dest, uint32_t size);
 void platform_write(uint32_t offset, const void __far * in_src, uint32_t size);
 void platform_command(uint8_t cmd, void __far * args, uint32_t args_size);
 void platform_debug_string(const char __far * str);
+void platform_printf(const char __far * format, ...);
 
 #endif
 

@@ -943,14 +943,13 @@ static void set_mttr_var_range(uint slot, uint8_t type, uint64_t address, uint64
     mask = ~(size - 1) & ((1ULL << bits) - 1);
     msr_address = MSR_MTRR_PHYS_BASE_0 + slot * 2;
 
-    format_str((char*)globals->platform_ram,
-               "mttr[%u] base 0x%llx mask 0x%llx size %llu%s",
-               PLATFORM_LOG_BUF_SIZE,
-               slot,
-               address | type,
-               mask | MTRR_PHYS_MASK_VALID,
-               (size < MB) ? size / KB : size / MB,
-               (size < MB) ? "KB" : "MB");
+    format_mem_str((char*)globals->platform_ram, PLATFORM_LOG_BUF_SIZE,
+                   "mttr[%u] base 0x%llx mask 0x%llx size %llu%s",
+                   slot,
+                   address | type,
+                   mask | MTRR_PHYS_MASK_VALID,
+                   (size < MB) ? size / KB : size / MB,
+                   (size < MB) ? "KB" : "MB");
     platform_notify_debug_string();
     write_msr(msr_address, address | type);
     write_msr(msr_address + 1, mask | MTRR_PHYS_MASK_VALID);

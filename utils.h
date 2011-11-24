@@ -76,6 +76,14 @@
 #define FAR_POINTER(seg, offset) (((uint32_t)(seg) << 16) | (offset));
 #endif
 
+#define SKIP_STACK_ARG(type, from) \
+    (from = (uint8_t __far *)(from + ALIGN(sizeof(type), sizeof(int))))
+
+#define POP_STACK_ARG(type, from) (                                     \
+    from = (uint8_t __far *)(from + ALIGN(sizeof(type), sizeof(int))),  \
+    *(type __far *)(from - ALIGN(sizeof(type), sizeof(int)))            \
+)
+
 #define ASSERT(x) if (!(x)) {                                                   \
     CLI();                                                                      \
     platform_debug_string(__FUNCTION__ ": ASSERT("#x") failed. halting...");    \
@@ -84,7 +92,7 @@
 
 #define NO_INTERRUPT() ASSERT(!(get_eflags() & (1 << CPU_FLAGS_IF_BIT)))
 
-#define DBG_MESSAGE(format, ...)
+#define DBG_MESSAGE(format, ...) platform_printf(__FUNCTION__ ": " format, ## __VA_ARGS__)
 
 uint32_t get_eflags();
 void put_eflags(uint32_t flags);
@@ -105,7 +113,13 @@ uint8_t inb(uint16_t port);
 uint16_t inw(uint16_t port);
 uint32_t ind(uint16_t port);
 
-void format_str(char __far *  dest, const char __far * format, uint32_t len, ...);
+
+typedef void (*format_str_cb)(void __far * opaque, char ch);
+
+void format_str(format_str_cb cb, void __far * opaque, const char __far * format,
+                uint8_t __far * args);
+void format_mem_str(char __far *  dest, uint len, const char __far * format, ...);
+
 uint32_t string_length(const char __far *  str);
 
 #endif
