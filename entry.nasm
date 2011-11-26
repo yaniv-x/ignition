@@ -30,6 +30,24 @@ group DGROUP _TEXT
 
 %include "defs.inc"
 
+%macro PUSH_ALL 0
+    pushf
+    pusha
+    push ds
+    push es
+    push fs
+    push gs
+%endmacro
+
+%macro POP_ALL 0
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    popa
+    popf
+%endmacro
+
 
 extern _init
 extern _on_unhandled_irq
@@ -51,6 +69,7 @@ entry:
     mov al, POST_CODE_START16
     mov dx, IO_PORT_POST_CODE
     out dx, al
+
     mov ax, cs
     mov ds, ax
     xor ax, ax
@@ -71,14 +90,29 @@ entry:
     mov dx, IO_PORT_POST_CODE
     out dx, al
 
+    mov edi, BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA
+    xor eax, eax
+    mov ax, [edi]
+    shl eax, 4
+    add eax, EBDA_PRIVATE_START + PRIVATE_OFFSET_FLAGS
+    mov edi, eax
+    mov al, [edi]
+    test al, BIOS_FLAGS_UNREAL
+    jnz .unreal
     mov ax, DATA16_SEGMENT_SELECTOR
+    jmp .set
+.unreal:
+    mov ax, UNREAL_SEGMENT_SELECTOR
+.set:
+    mov cx, DATA16_SEGMENT_SELECTOR
+    mov ds, cx
+    lidt [.real_mode_idt]
+
     mov ss, ax
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
-
-    lidt [.real_mode_idt]
 
     mov eax, cr0
     and eax, ~CR0_PE
@@ -260,5 +294,19 @@ _call32:
     mov eax, cr0
     or eax, CR0_PE
     mov cr0, eax
-    jmp dword CODE_SEGMENT_SELECTOR:PROTECTED_START_ADDRESS
+    jmp dword CODE_SEGMENT_SELECTOR:BIOS32_START_ADDRESS
+
+; void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device);
+global _call_rom_init
+_call_rom_init:
+    push bp
+    mov bp, sp
+    mov ah, [bp + 8]
+    mov al, [bp + 10]
+    shl al, 3
+    PUSH_ALL
+    call far [bp + 4]
+    POP_ALL
+    pop bp
+    ret
 

@@ -47,8 +47,8 @@ void directory_service(UserRegs __far * context)
     switch (context->eax) {
     case PCI_SERVICE_SIGNATURE:
         AL(context) = 0x00;
-        context->ebx = PROTECTED_START_ADDRESS;
-        context->ecx = PROTECTED_SIZE;
+        context->ebx = BIOS32_START_ADDRESS;
+        context->ecx = BIOS32_SIZE;
         context->edx = (uint32_t)pcibios_service_entry;
         DBG_MESSAGE("pcibios returned");
         break;

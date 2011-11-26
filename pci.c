@@ -125,7 +125,7 @@ void pci_write_8(uint32_t bus, uint32_t device, uint32_t offset, uint8_t val)
 }
 
 
-static int pci_find_device(uint32_t bus, uint32_t device, void __far * opaque)
+static int pci_find_device_cb(uint32_t bus, uint32_t device, void __far * opaque)
 {
     PCIFindDeviceInfo* info = (PCIFindDeviceInfo*)opaque;
     uint16_t device_id;
@@ -142,7 +142,7 @@ static int pci_find_device(uint32_t bus, uint32_t device, void __far * opaque)
         return FALSE;
     }
 
-    if (info->current_index == info->request_index) {
+    if (info->current_index < info->request_index) {
         info->current_index++;
         return FALSE;
     }
@@ -165,18 +165,18 @@ typedef struct PCIFindClassInfo {
 } PCIFindClassInfo;
 
 
-static int pci_find_class(uint32_t bus, uint32_t device, void __far * opaque)
+static int pci_find_class_cb(uint32_t bus, uint32_t device, void __far * opaque)
 {
     PCIFindClassInfo* info = (PCIFindClassInfo*)opaque;
     uint16_t device_id;
 
-    uint32_t class = pci_read_32(bus, device, PCI_OFFSET_CLASS);
+    uint32_t class = pci_read_32(bus, device, PCI_OFFSET_REVISION);
 
     if ((class >> 8) != info->class) {
         return FALSE;
     }
 
-    if (info->current_index == info->request_index) {
+    if (info->current_index < info->request_index) {
         info->current_index++;
         return FALSE;
     }
@@ -186,6 +186,43 @@ static int pci_find_class(uint32_t bus, uint32_t device, void __far * opaque)
     info->device = device;
 
     return TRUE;
+}
+
+
+bool_t pci_is_io_enabled(uint bus, uint device)
+{
+    NO_INTERRUPT();
+
+    return !!(pci_read_32(bus, device, PCI_OFFSET_COMMAND) & PCI_COMMAND_ENABLE_IO);
+}
+
+
+bool_t pci_is_mem_enabled(uint bus, uint device)
+{
+    NO_INTERRUPT();
+
+    return !!(pci_read_32(bus, device, PCI_OFFSET_COMMAND) & PCI_COMMAND_ENABLE_MEM);
+}
+
+
+bool_t pci_find_class(uint index, PCIDeviceType __far * type, uint __far * bus,
+                       uint __far * device)
+{
+    PCIFindClassInfo info;
+    info.class = ((uint32_t)type->class << 16) | ((uint32_t)type->sub_class << 8) | type->prog_if;
+    info.request_index = index;
+    info.current_index = 0;
+    info.bus = 0xffff;
+
+    pci_for_each(pci_find_class_cb, &info);
+
+    if (info.bus != 0xffff) {
+        *bus = info.bus;
+        *device = info.device;
+        return TRUE;
+    } else {
+        return FALSE;
+    }
 }
 
 
@@ -302,7 +339,7 @@ void pcibios_service(UserRegs __far * context)
             break;
         }
 
-        pci_for_each(pci_find_device, &info);
+        pci_for_each(pci_find_device_cb, &info);
 
         if (info.bus != 0xffff) {
             BH(context) = info.bus;
@@ -322,7 +359,7 @@ void pcibios_service(UserRegs __far * context)
         info.current_index = 0;
         info.bus = 0xffff;
 
-        pci_for_each(pci_find_class, &info);
+        pci_for_each(pci_find_class_cb, &info);
 
         if (info.bus != 0xffff) {
             BH(context) = info.bus;

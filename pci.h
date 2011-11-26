@@ -95,6 +95,45 @@
 
 #define PCI_MEM_MIN_SIZE 16
 
+#define PCI_ROM_GRANULARITY 512
+#define PCI_ROM_SIGNATURE FOUR_CHARS('PCIR')
+#define EXP_ROM_SIGNATURE 0xaa55
+
+
+typedef struct PCIDeviceType {
+    uint8_t class;
+    uint8_t sub_class;
+    uint8_t prog_if;
+} PCIDeviceType;
+
+
+typedef _Packed struct CodeImageHeader {
+    uint16_t signature;         // 0xaa55
+    uint8_t code_image_size;    // in 512 byte units
+    uint8_t jump[3];            // entry point
+    uint8_t data[18];           // unique data (copyright etc.)
+    uint16_t pci_data_offset;   // offset to PCIExpRomData
+} CodeImageHeader;
+
+
+typedef _Packed struct PCIExpRomData {
+    uint32_t signature;     //  'PCIR'
+    uint16_t vendor_id;
+    uint16_t device_id;
+    uint16_t reserved_0;
+    uint16_t struct_size;
+    uint8_t revision;       //  0
+    uint8_t prog_if;
+    uint8_t sub_class;
+    uint8_t class;
+    uint16_t code_image_size;
+    uint16_t code_revision;
+    uint8_t code_type;      //  0 => x86
+    uint8_t flags;          //  bit 7: set => last code image, bits 6-0: reserved
+    uint16_t reserved_1;
+} PCIExpRomData;
+
+
 uint32_t pci_config_address(uint32_t bus, uint32_t device, uint32_t index);
 
 uint32_t pci_read_32(uint32_t bus, uint32_t device, uint32_t offset);
@@ -107,6 +146,11 @@ void pci_write_8(uint32_t bus, uint32_t device, uint32_t offset, uint8_t val);
 
 typedef int (*pci_for_each_cb)(uint32_t bus, uint32_t device, void __far * opaque);
 void pci_for_each(pci_for_each_cb cb, void __far * opaque);
+
+bool_t pci_is_io_enabled(uint bus, uint device);
+bool_t pci_is_mem_enabled(uint bus, uint device);
+bool_t pci_find_class(uint index, PCIDeviceType __far * type, uint __far * bus,
+                      uint __far * device);
 
 void pcibios_service(UserRegs __far * context);
 

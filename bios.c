@@ -41,6 +41,7 @@
 }
 
 void call32(void);
+void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device);
 void unhandled_interrupt(void);
 void unhandled_irq0(void);
 void unhandled_irq1(void);
@@ -67,6 +68,8 @@ void int16_handler();
 void int1a_handler();
 
 #define FUNC_OFFSET(function) (uint16_t)(function)
+
+#define OFFSET_OF_PRIVATE(x) (OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, x))
 
 
 static uint16_t set_ds(uint16_t data_seg)
@@ -1859,6 +1862,49 @@ static inline void init_mouse()
 }
 
 
+static void int_exp_rom()
+{
+    uint32_t start;
+    uint8_t bus;
+    uint8_t device;
+    uint16_t rom_seg;
+    uint8_t size_before;
+    uint8_t size_after;
+
+    ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags),
+                    ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags)) | BIOS_FLAGS_UNREAL);
+    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_NOP);
+    call32();
+
+    start = ebda_read_dword(OFFSET_OF_PRIVATE(loaded_rom_address));
+    bus = ebda_read_byte(OFFSET_OF_PRIVATE(loaded_rom_bus));
+    device = ebda_read_byte(OFFSET_OF_PRIVATE(loaded_rom_device));
+    device <<= 3;
+    rom_seg = start >> 4;
+
+    size_before = read_byte(rom_seg, OFFSET_OF(CodeImageHeader, code_image_size));
+
+    call_rom_init(OFFSET_OF(CodeImageHeader, jump), rom_seg, bus, device);
+
+    size_after = read_byte(rom_seg, OFFSET_OF(CodeImageHeader, code_image_size));
+
+    if (size_after > size_before) {
+        bios_error(BIOS_ERROR_EXP_ROM_NEW_SIZE);
+    } else if (size_after < size_before) {
+        uint32_t load_address;
+
+        load_address = ebda_read_dword(OFFSET_OF_PRIVATE(rom_load_address));
+        load_address -= (size_before - size_after) * PCI_ROM_GRANULARITY;
+        ebda_write_dword(OFFSET_OF_PRIVATE(rom_load_address), load_address - load_address);
+    }
+
+    ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags),
+                    ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags)) & ~BIOS_FLAGS_UNREAL);
+    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_NOP);
+    call32();
+}
+
+
 static void play_note(uint32_t frequency, uint duration)
 {
     uint32_t countdown = 1193182UL / frequency;
@@ -1890,6 +1936,7 @@ void init()
     post(POST_CODE_INIT16);
     init_bios_data_area();
 
+    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_INIT);
     call32();
 
     init_int_vector();
@@ -1901,6 +1948,24 @@ void init()
 
     init_keyboard();
     init_mouse();
+
+    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_LOAD_VGA);
+    call32();
+
+    if (ebda_read_byte(OFFSET_OF_PRIVATE(call_ret_val))) {
+        int_exp_rom();
+    }
+
+    for (;;) {
+        ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_LOAD_EXP_ROM);
+        call32();
+
+        if (!ebda_read_byte(OFFSET_OF_PRIVATE(call_ret_val))) {
+            break;
+        }
+
+        int_exp_rom();
+    }
 
     STI();
 
@@ -1939,7 +2004,7 @@ void init()
 
         ascii_str[0] = ascii;
 
-        format_mem_str(str, sizeof(str), "scan 0x%x ascii 0x%x %s", scan, ascii, ascii_str);
+        format_mem_str(str, sizeof(str), "scan 0x%x ascii 0x%x %S", scan, ascii, ascii_str);
         platform_debug_string(str);
     }
 

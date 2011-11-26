@@ -34,6 +34,7 @@ typedef unsigned __int64 uint64_t;
 typedef unsigned int uint;
 typedef uint32_t address_t;
 typedef uint32_t far_ptr_16_t; // high word is seg, low word is offset
+typedef uint8_t bool_t;
 
 #ifdef _M_I86
 typedef uint16_t offset_t;

@@ -31,7 +31,7 @@ group DGROUP _TEXT
 %include "defs.inc"
 
 
-extern _init
+extern _entry
 extern _directory_service
 extern _pcibios_service
 
@@ -45,9 +45,9 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov esp, PROTECTED_STACK_BASE
+    mov esp, BIOS32_STACK_BASE
 
-    call _init
+    call _entry
 
 .infloop:
     hlt

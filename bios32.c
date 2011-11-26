@@ -77,13 +77,6 @@ typedef struct PCIDevDescriptor {
 } PCIDevDescriptor;
 
 
-typedef struct PCIDeviceType {
-    uint8_t class;
-    uint8_t sub_class;
-    uint8_t pro_if;
-} PCIDeviceType;
-
-
 static uint8_t* bda = (uint8_t*)BIOS_DATA_AREA_ADDRESS;
 
 
@@ -165,6 +158,18 @@ static void mem_reset(void* from, uint32_t n)
     uint8_t* now = from;
     uint8_t* end = now + n;
     for (; now < end; now++) *now = 0;
+}
+
+
+static void mem_copy(void* dest, const void* src, uint32_t size)
+{
+    const uint8_t* from = src;
+    uint8_t* to = dest;
+    uint32_t i;
+
+    for ( i = 0; i < size; i++) {
+        to[i] = from[i];
+    }
 }
 
 
@@ -381,9 +386,9 @@ static uint32_t pci_read_bar_for_size(uint32_t bus, uint32_t device, uint bar)
 
 static void pci_get_class(uint32_t bus, uint32_t device, PCIDeviceType* type)
 {
-    uint32_t config_data = pci_read_32(bus, device, PCI_OFFSET_CLASS - 1);
+    uint32_t config_data = pci_read_32(bus, device, PCI_OFFSET_REVISION);
 
-    type->pro_if = config_data >> 8;
+    type->prog_if = config_data >> 8;
     type->sub_class = config_data >> 16;
     type->class = config_data >> 24;
 }
@@ -401,7 +406,7 @@ static int is_fixed_bar(uint32_t bus, uint32_t device, uint bar)
 
     if (type.class == PCI_CLASS_MASS_STORAGE && type.sub_class == PCI_MASS_STORAGE_SUBCLASS_IDE) {
         uint compatibility_bit = (bar / 2) * 2;
-        return !(type.pro_if & (1 << compatibility_bit));
+        return !(type.prog_if & (1 << compatibility_bit));
     }
 
     return FALSE;
@@ -431,7 +436,7 @@ static int pci_enable_test(uint32_t bus, uint32_t device)
     switch (type.class) {
     case PCI_CLASS_MASS_STORAGE:
         if (type.sub_class == PCI_MASS_STORAGE_SUBCLASS_IDE &&
-                (~type.pro_if & 0x0a /*fixed mode of operation in primary or secondary channel*/)) {
+               (~type.prog_if & 0x0a /*fixed mode of operation in primary or secondary channel*/)) {
             if (globals->stage1_flags & FLAGS_IDE_RES_WAS_CLAIMED) {
                 return FALSE;
             }
@@ -441,7 +446,7 @@ static int pci_enable_test(uint32_t bus, uint32_t device)
         break;
     case PCI_CLASS_DISPLAY:
         if (type.sub_class == PCI_DISPLAY_SUBCLASS_VGA &&
-                                                       type.pro_if == PCI_VGA_PROGIF_VGACOMPAT) {
+                                                       type.prog_if == PCI_VGA_PROGIF_VGACOMPAT) {
             if (globals->stage1_flags & FLAGS_VGA_RES_WAS_CLAIMED) {
                 return FALSE;
             }
@@ -743,7 +748,7 @@ static void pci_activation()
         switch (type.class) {
         case PCI_CLASS_MASS_STORAGE:
             if (type.sub_class == PCI_MASS_STORAGE_SUBCLASS_IDE) {
-                if (type.pro_if & 0x80) {
+                if (type.prog_if & 0x80) {
                     uint16_t command = pci_read_16(bus, device, PCI_OFFSET_COMMAND);
                     uint16_t bm_io;
 
@@ -847,6 +852,8 @@ static void init_globals()
     eax = 0x80000008;
     cpuid(&eax, &ebx, &ecx, &edx);
     globals->address_lines = eax & 0xff;
+
+    globals->rom_load_address = EXP_ROM_START_ADDRESS;
 }
 
 
@@ -1105,7 +1112,200 @@ static inline void init_pic()
 }
 
 
-void init()
+static bool_t load_expansion_rom(uint8_t *address, uint32_t size, uint bus, uint device,
+                                 PCIDeviceType* type)
+{
+    ASSERT((size % PCI_ROM_GRANULARITY) == 0);
+
+    size /= PCI_ROM_GRANULARITY;
+
+    while (size) {
+        CodeImageHeader* header = (CodeImageHeader*)address;
+        PCIExpRomData* pci_data;
+        uint image_size;
+        uint8_t* dest;
+        uint8_t* end;
+
+        if (header->signature != EXP_ROM_SIGNATURE) {
+            D_MESSAGE("0x%x.0x%x: invalid rom signature", bus, device);
+            return FALSE;
+        }
+
+        if (header->code_image_size > size) {
+            D_MESSAGE("0x%x.0x%x: invalid size", bus, device);
+            return FALSE;
+        }
+
+        if (header->pci_data_offset + sizeof(PCIExpRomData) > size * PCI_ROM_GRANULARITY) {
+            D_MESSAGE("0x%x.0x%x: invalid offset to pci struct", bus, device);
+            return FALSE;
+        }
+
+        pci_data = (PCIExpRomData*)(address + header->pci_data_offset);
+
+        if (pci_data->signature != PCI_ROM_SIGNATURE ||
+            pci_data->struct_size != sizeof(PCIExpRomData) ||
+            pci_data->revision != 0 ||
+            pci_data->code_image_size != header->code_image_size)
+        {
+            D_MESSAGE("0x%x.0x%x:: invalid pci struct", bus, device);
+            return FALSE;
+        }
+
+        image_size = header->code_image_size * PCI_ROM_GRANULARITY;
+
+        if (pci_data->vendor_id != pci_read_16(bus, device, PCI_OFFSET_VENDOR) ||
+            pci_data->device_id != pci_read_16(bus, device, PCI_OFFSET_DEVICE) ||
+            pci_data->class != type->class ||
+            pci_data->sub_class != type->sub_class ||
+            pci_data->prog_if != type->prog_if ||
+            pci_data->code_type != 0)
+        {
+            if (pci_data->flags && (1 << 7)) {
+                break;
+            }
+
+            address += image_size;
+            size -= header->code_image_size;
+            continue;
+        }
+
+        D_MESSAGE("0x%x.0x%x: found", bus, device);
+
+        dest = (uint8_t*)get_ebda_private()->rom_load_address;
+        end = (uint8_t*)BIOS32_START_ADDRESS;
+
+        if (image_size > end - dest) {
+            D_MESSAGE("0x%x.0x%x: no space", bus, device);
+            return FALSE;
+        }
+
+        mem_copy(dest, address, image_size);
+        get_ebda_private()->rom_load_address += image_size;
+        get_ebda_private()->loaded_rom_address = (uint32_t)dest;
+        get_ebda_private()->loaded_rom_bus = bus;
+        get_ebda_private()->loaded_rom_device = device;
+        D_MESSAGE("0x%x.0x%x: @0x%x", bus, device, dest);
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+
+static  int load_rom_cb(uint32_t bus, uint32_t device, void __far * opaque)
+{
+    uint8_t __far * index = opaque;
+    uint32_t exp_rom_address;
+    uint32_t exp_rom_size;
+    PCIDeviceType type;
+    uint32_t class;
+    uint8_t ok;
+
+    class = pci_read_32(bus, device, PCI_OFFSET_REVISION);
+    type.class = class >> 24;
+    type.sub_class = (class >> 16) & 0xff;
+    type.prog_if = (class >> 8) & 0xff;
+
+    if (type.class == PCI_CLASS_DISPLAY && type.sub_class == PCI_DISPLAY_SUBCLASS_VGA &&
+                                                        type.prog_if == PCI_VGA_PROGIF_VGACOMPAT) {
+        return FALSE;
+    }
+
+    exp_rom_address = pci_read_32(bus, device, PCI_OFFSET_ROM_ADDRESS);
+
+    if (!exp_rom_address) {
+        return FALSE;
+    }
+
+    if (*index < get_ebda_private()->rom_load_index) {
+        *index++;
+        return FALSE;
+    }
+
+    pci_write_32(bus, device, PCI_OFFSET_ROM_ADDRESS, ~PCI_ROM_ENABLE_MASK);
+    exp_rom_size = pci_read_32(bus, device, PCI_OFFSET_ROM_ADDRESS) & PCI_ROM_ADDRESS_MASK;
+    exp_rom_size = pci_bar_to_size(exp_rom_size);
+    pci_write_32(bus, device, PCI_OFFSET_ROM_ADDRESS, exp_rom_address | PCI_ROM_ENABLE_MASK);
+
+    ASSERT(exp_rom_size);
+
+    ok = load_expansion_rom((uint8_t*)exp_rom_address, exp_rom_size, bus, device, &type);
+
+    pci_write_32(bus, device, PCI_OFFSET_ROM_ADDRESS, exp_rom_address);
+    get_ebda_private()->call_ret_val = ok;
+    get_ebda_private()->rom_load_index++;
+    pci_write_32(bus, device, PCI_OFFSET_ROM_ADDRESS, exp_rom_address);
+
+    return TRUE;
+}
+
+
+static void load_rom()
+{
+    uint8_t index = 0;
+    get_ebda_private()->call_ret_val = FALSE;
+    pci_for_each(load_rom_cb, &index);
+}
+
+
+static void load_vga()
+{
+    PCIDeviceType type;
+    uint index;
+    uint bus;
+    uint device;
+
+    NO_INTERRUPT();
+
+    type.class = PCI_CLASS_DISPLAY;
+    type.sub_class = PCI_DISPLAY_SUBCLASS_VGA;
+    type.prog_if = PCI_VGA_PROGIF_VGACOMPAT;
+
+    index = 0;
+    for (;; index++) {
+        uint32_t exp_rom_address;
+        uint32_t exp_rom_size;
+        bool_t ok;
+
+        if (!pci_find_class(index, &type, &bus, &device)) {
+            get_ebda_private()->call_ret_val = FALSE;
+            D_MESSAGE("not found");
+            return;
+        }
+
+        if (!pci_is_io_enabled(bus, device)) {
+            continue;
+        }
+
+        D_MESSAGE("found");
+
+        ASSERT(pci_is_mem_enabled(bus, device));
+
+        exp_rom_address = pci_read_32(bus, device, PCI_OFFSET_ROM_ADDRESS);
+        exp_rom_address &= PCI_ROM_ADDRESS_MASK;
+
+        if (!exp_rom_address) {
+            bios_error(BIOS_ERROR_NO_VGA_EXP_ROM);
+        }
+
+        pci_write_32(bus, device, PCI_OFFSET_ROM_ADDRESS, ~PCI_ROM_ENABLE_MASK);
+        exp_rom_size = pci_read_32(bus, device, PCI_OFFSET_ROM_ADDRESS) & PCI_ROM_ADDRESS_MASK;
+        exp_rom_size = pci_bar_to_size(exp_rom_size);
+        pci_write_32(bus, device, PCI_OFFSET_ROM_ADDRESS, exp_rom_address | PCI_ROM_ENABLE_MASK);
+
+        ASSERT(exp_rom_size);
+
+        ok = load_expansion_rom((uint8_t*)exp_rom_address, exp_rom_size, bus, device, &type);
+        pci_write_32(bus, device, PCI_OFFSET_ROM_ADDRESS, exp_rom_address);
+        get_ebda_private()->call_ret_val = ok;
+
+        return;
+    }
+}
+
+
+static void init()
 {
     post(POST_CODE_INIT32);
 
@@ -1128,6 +1328,7 @@ void init()
     ASSERT(OFFSET_OF(EBDAPrivate, real_user_sp) == PRIVATE_OFFSET_USER_SP);
     ASSERT(OFFSET_OF(EBDAPrivate, real_hard_int_ss) == PRIVATE_OFFSET_HARD_INT_SS);
     ASSERT(OFFSET_OF(EBDAPrivate, real_hard_int_sp) == PRIVATE_OFFSET_HARD_INT_SP);
+    ASSERT(OFFSET_OF(EBDAPrivate, bios_flags) == PRIVATE_OFFSET_FLAGS);
 
     DBG_MESSAGE("sizeof(EBDA) is %u", sizeof(EBDA));
 
@@ -1138,8 +1339,29 @@ void init()
     init_pic();
     init_irq_routing();
 
-    ret_16();
+    get_ebda_private()->call_ret_val = TRUE;
+}
 
-    bios_error(BIOS_ERROR_UNEXPECTED_IP);
+
+void entry()
+{
+    switch (get_ebda_private()->call_select) {
+    case CALL_SELECT_INIT:
+        init();
+        break;
+    case CALL_SELECT_LOAD_VGA:
+        load_vga();
+        break;
+    case CALL_SELECT_LOAD_EXP_ROM:
+        load_rom();
+        break;
+    case CALL_SELECT_NOP:
+        get_ebda_private()->call_ret_val = TRUE;
+        break;
+    default:
+        bios_error(BIOS_ERROR_UNEXPECTED_IP);
+    }
+
+    ret_16();
 }
 

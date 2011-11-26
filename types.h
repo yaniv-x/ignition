@@ -51,6 +51,7 @@ typedef _Packed struct EBDAPrivate {
     uint16_t real_user_sp;
     uint16_t real_hard_int_ss;
     uint16_t real_hard_int_sp;
+    uint8_t bios_flags;
 
     uint32_t below_1m_used_pages;
     uint32_t above_1m_pages;
@@ -65,10 +66,12 @@ typedef _Packed struct EBDAPrivate {
     address_t platform_ram;
     uint8_t address_lines;
     uint8_t nmi_mask;
-    uint8_t bios_flags;
     uint8_t rtc_reg_c;
     uint8_t rtc_priodoc_refs;
     uint32_t rtc_priodoc_ticks;
+
+    uint8_t call_select;
+    uint8_t call_ret_val;
 
     uint32_t alloc_start;
     uint32_t alloc_pos;
@@ -79,6 +82,11 @@ typedef _Packed struct EBDAPrivate {
     address_t mem_bars;
     address_t mem32_bars;
     address_t mem64_bars;
+    uint32_t rom_load_address;
+    uint8_t rom_load_index;
+    uint32_t loaded_rom_address;
+    uint8_t loaded_rom_bus;
+    uint8_t loaded_rom_device;
 } EBDAPrivate;
 
 
