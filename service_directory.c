@@ -50,10 +50,10 @@ void directory_service(UserRegs __far * context)
         context->ebx = BIOS32_START_ADDRESS;
         context->ecx = BIOS32_SIZE;
         context->edx = (uint32_t)pcibios_service_entry;
-        DBG_MESSAGE("pcibios returned");
+        D_MESSAGE("pcibios returned");
         break;
     default:
-        DBG_MESSAGE("no service 0x%x", context->eax);
+        D_MESSAGE("no service 0x%x", context->eax);
         AL(context) = 0x80;
     }
 }

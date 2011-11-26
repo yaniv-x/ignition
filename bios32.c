@@ -1330,7 +1330,7 @@ static void init()
     ASSERT(OFFSET_OF(EBDAPrivate, real_hard_int_sp) == PRIVATE_OFFSET_HARD_INT_SP);
     ASSERT(OFFSET_OF(EBDAPrivate, bios_flags) == PRIVATE_OFFSET_FLAGS);
 
-    DBG_MESSAGE("sizeof(EBDA) is %u", sizeof(EBDA));
+    D_MESSAGE("sizeof(EBDA) is %u", sizeof(EBDA));
 
     init_cpu();
     init_rtc();

@@ -136,15 +136,15 @@ typedef _Packed struct PCIExpRomData {
 
 uint32_t pci_config_address(uint32_t bus, uint32_t device, uint32_t index);
 
-uint32_t pci_read_32(uint32_t bus, uint32_t device, uint32_t offset);
-uint16_t pci_read_16(uint32_t bus, uint32_t device, uint32_t offset);
-uint16_t pci_read_8(uint32_t bus, uint32_t device, uint32_t offset);
+uint32_t pci_read_32(uint bus, uint device, uint offset);
+uint16_t pci_read_16(uint bus, uint device, uint offset);
+uint8_t pci_read_8(uint bus, uint device, uint offset);
 
-void pci_write_32(uint32_t bus, uint32_t device, uint32_t offset, uint32_t val);
-void pci_write_16(uint32_t bus, uint32_t device, uint32_t offset, uint16_t val);
-void pci_write_8(uint32_t bus, uint32_t device, uint32_t offset, uint8_t val);
+void pci_write_32(uint bus, uint device, uint offset, uint32_t val);
+void pci_write_16(uint bus, uint device, uint offset, uint16_t val);
+void pci_write_8(uint bus, uint device, uint offset, uint8_t val);
 
-typedef int (*pci_for_each_cb)(uint32_t bus, uint32_t device, void __far * opaque);
+typedef int (*pci_for_each_cb)(uint bus, uint device, void __far * opaque);
 void pci_for_each(pci_for_each_cb cb, void __far * opaque);
 
 bool_t pci_is_io_enabled(uint bus, uint device);

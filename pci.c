@@ -79,7 +79,7 @@ uint32_t pci_config_address(uint32_t bus, uint32_t device, uint32_t index)
 }
 
 
-uint32_t pci_read_32(uint32_t bus, uint32_t device, uint32_t offset)
+uint32_t pci_read_32(uint bus, uint device, uint offset)
 {
     ASSERT((offset & 0x3) == 0);
     outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
@@ -87,7 +87,7 @@ uint32_t pci_read_32(uint32_t bus, uint32_t device, uint32_t offset)
 }
 
 
-void pci_write_32(uint32_t bus, uint32_t device, uint32_t offset, uint32_t val)
+void pci_write_32(uint bus, uint device, uint offset, uint32_t val)
 {
     ASSERT((offset & 0x3) == 0);
     outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
@@ -95,7 +95,7 @@ void pci_write_32(uint32_t bus, uint32_t device, uint32_t offset, uint32_t val)
 }
 
 
-uint16_t pci_read_16(uint32_t bus, uint32_t device, uint32_t offset)
+uint16_t pci_read_16(uint bus, uint device, uint offset)
 {
     ASSERT((offset & 0x1) == 0);
     outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
@@ -103,7 +103,7 @@ uint16_t pci_read_16(uint32_t bus, uint32_t device, uint32_t offset)
 }
 
 
-void pci_write_16(uint32_t bus, uint32_t device, uint32_t offset, uint16_t val)
+void pci_write_16(uint bus, uint device, uint offset, uint16_t val)
 {
     ASSERT((offset & 0x1) == 0);
     outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
@@ -111,21 +111,21 @@ void pci_write_16(uint32_t bus, uint32_t device, uint32_t offset, uint16_t val)
 }
 
 
-uint16_t pci_read_8(uint32_t bus, uint32_t device, uint32_t offset)
+uint8_t pci_read_8(uint bus, uint device, uint offset)
 {
     outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
     return inb(IO_PORT_PCI_DATA + (offset & 0x3));
 }
 
 
-void pci_write_8(uint32_t bus, uint32_t device, uint32_t offset, uint8_t val)
+void pci_write_8(uint bus, uint device, uint offset, uint8_t val)
 {
     outd(IO_PORT_PCI_ADDRESS, pci_config_address(bus, device, offset >> 2));
     outb(IO_PORT_PCI_DATA + (offset & 0x3), val);
 }
 
 
-static int pci_find_device_cb(uint32_t bus, uint32_t device, void __far * opaque)
+static int pci_find_device_cb(uint bus, uint device, void __far * opaque)
 {
     PCIFindDeviceInfo* info = (PCIFindDeviceInfo*)opaque;
     uint16_t device_id;
@@ -165,7 +165,7 @@ typedef struct PCIFindClassInfo {
 } PCIFindClassInfo;
 
 
-static int pci_find_class_cb(uint32_t bus, uint32_t device, void __far * opaque)
+static int pci_find_class_cb(uint bus, uint device, void __far * opaque)
 {
     PCIFindClassInfo* info = (PCIFindClassInfo*)opaque;
     uint16_t device_id;
@@ -235,7 +235,7 @@ static void pcibios_get_irq_option(UserRegs __far * context)
     uint table_size;
     uint i;
 
-    DBG_MESSAGE("start");
+    D_MESSAGE("start");
 
     BIOS_PRIVATE_READ(irq_routing_table_size, &table_size);
     required_size = table_size * sizeof(IRQOption);
@@ -245,7 +245,7 @@ static void pcibios_get_irq_option(UserRegs __far * context)
     BX(context) = NOX_PCI_IRQ_EXCLUSIVE_MASK;
 
     if (required_size > buff->size) {
-        DBG_MESSAGE("0x%x is too small, 0x%x needed", (uint32_t)buff->size, required_size);
+        D_MESSAGE("0x%x is too small, 0x%x needed", (uint32_t)buff->size, required_size);
         buff->size = required_size;
         AH(context) = PCIBIOS_BUFFER_TOO_SMALL;
         return;
@@ -276,7 +276,7 @@ void pcibios_set_irq(UserRegs __far * context)
     function = BL(context) & 0x7;
 
     if (args.pin < 0x0a || args.pin > 0x0d || args.irq > 15 || function || args.bus) {
-        DBG_MESSAGE("failed ebx 0x%lx ecx 0x%lx", context->ebx, context->ecx);
+        D_MESSAGE("failed ebx 0x%lx ecx 0x%lx", context->ebx, context->ecx);
         AH(context) = PCIBIOS_SET_FAILED;
     }
 
@@ -284,7 +284,7 @@ void pcibios_set_irq(UserRegs __far * context)
     platform_command(PALTFORM_CMD_SET_PCI_IRQ, &args, sizeof(args));
 
     if (!args.ret_val) {
-        DBG_MESSAGE("cobfugure failed");
+        D_MESSAGE("cobfugure failed");
         AH(context) = PCIBIOS_SET_FAILED;
     } else {
         AH(context) = PCIBIOS_SUCCESSFUL;
@@ -300,7 +300,7 @@ void pcibios_service(UserRegs __far * context)
     FLAGS(context) |= (1 << CPU_FLAGS_CF_BIT);
 
     if (AH(context) != PCIBIOS_FUNC) {
-        DBG_MESSAGE("0x%x is not pcibios function", AH(context));
+        D_MESSAGE("0x%x is not pcibios function", AH(context));
         AH(context) = PCIBIOS_FUNC_NOT_SUPPORTED;
         FLAGS(context) |= (1 << CPU_FLAGS_CF_BIT);
         return;
@@ -334,7 +334,7 @@ void pcibios_service(UserRegs __far * context)
         info.bus = 0xffff;
 
         if (info.vendor_id == 0xffff) {
-            DBG_MESSAGE("find device: invalid vendor id");
+            D_MESSAGE("find device: invalid vendor id");
             AH(context) = PCIBIOS_BAD_VANDOR_ID;
             break;
         }
@@ -376,7 +376,7 @@ void pcibios_service(UserRegs __far * context)
         uint address = DI(context);
 
         if (address > 255) {
-            DBG_MESSAGE("rb: bad address 0x%x", address);
+            D_MESSAGE("rb: bad address 0x%x", address);
             AH(context) = PCIBIOS_BAD_REGISTER;
             break;
         }
@@ -395,7 +395,7 @@ void pcibios_service(UserRegs __far * context)
         uint address = DI(context);
 
         if (address > 255 || (address & 0x01)) {
-            DBG_MESSAGE("rw: bad address 0x%x", address);
+            D_MESSAGE("rw: bad address 0x%x", address);
             AH(context) = PCIBIOS_BAD_REGISTER;
             break;
         }
@@ -414,7 +414,7 @@ void pcibios_service(UserRegs __far * context)
         uint address = DI(context);
 
         if (address > 255 || (address & 0x03)) {
-            DBG_MESSAGE("rd: bad address 0x%x", address);
+            D_MESSAGE("rd: bad address 0x%x", address);
             AH(context) = PCIBIOS_BAD_REGISTER;
             break;
         }
@@ -433,7 +433,7 @@ void pcibios_service(UserRegs __far * context)
         uint address = DI(context);
 
         if (address > 255) {
-            DBG_MESSAGE("wb: bad address 0x%x", address);
+            D_MESSAGE("wb: bad address 0x%x", address);
             AH(context) = PCIBIOS_BAD_REGISTER;
             break;
         }
@@ -450,7 +450,7 @@ void pcibios_service(UserRegs __far * context)
         uint address = DI(context);
 
         if (address > 255 || (address & 0x01)) {
-            DBG_MESSAGE("ww: bad address 0x%x", address);
+            D_MESSAGE("ww: bad address 0x%x", address);
             AH(context) = PCIBIOS_BAD_REGISTER;
             break;
         }
@@ -467,7 +467,7 @@ void pcibios_service(UserRegs __far * context)
         uint address = DI(context);
 
         if (address > 255 || (address & 0x03)) {
-            DBG_MESSAGE("wd: bad address 0x%x", address);
+            D_MESSAGE("wd: bad address 0x%x", address);
             AH(context) = PCIBIOS_BAD_REGISTER;
             break;
         }
@@ -487,7 +487,7 @@ void pcibios_service(UserRegs __far * context)
         pcibios_set_irq(context);
         break;
     default:
-        DBG_MESSAGE("not supported 0x%x", AL(context));
+        D_MESSAGE("not supported 0x%x", AL(context));
         AH(context) = PCIBIOS_FUNC_NOT_SUPPORTED;
         FLAGS(context) |= (1 << CPU_FLAGS_CF_BIT);
     }

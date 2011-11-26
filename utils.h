@@ -94,9 +94,6 @@
 
 #define D_MESSAGE(format, ...) platform_printf(__FUNCTION__ ": " format, ## __VA_ARGS__)
 
-//remove me
-#define DBG_MESSAGE(format, ...) platform_printf(__FUNCTION__ ": " format, ## __VA_ARGS__)
-
 uint32_t get_eflags();
 void put_eflags(uint32_t flags);
 void freeze();
