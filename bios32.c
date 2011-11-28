@@ -38,12 +38,6 @@
 
 void ret_16(void);
 
-#define PCI_CLASS_MASS_STORAGE 0x01
-#define PCI_MASS_STORAGE_SUBCLASS_IDE 0x01
-#define PCI_CLASS_DISPLAY 0x03
-#define PCI_DISPLAY_SUBCLASS_VGA 0x00
-#define PCI_VGA_PROGIF_VGACOMPAT 0x00
-
 #define EXP_ROM_BAR PCI_NUM_BARS
 #define MID_RAM_RANGE_ALIGMENT_MB 512
 
@@ -145,22 +139,6 @@ static void write_msr(uint32_t index, uint64_t val)
 }
 
 
-static void mem_set(void* from, uint8_t patern, uint32_t n)
-{
-    uint8_t* now = from;
-    uint8_t* end = now + n;
-    for (; now < end; now++) *now = patern;
-}
-
-
-static void mem_reset(void* from, uint32_t n)
-{
-    uint8_t* now = from;
-    uint8_t* end = now + n;
-    for (; now < end; now++) *now = 0;
-}
-
-
 static void mem_copy(void* dest, const void* src, uint32_t size)
 {
     const uint8_t* from = src;
@@ -200,19 +178,6 @@ static EBDA* get_ebda()
 static EBDAPrivate* get_ebda_private()
 {
     return &get_ebda()->private;
-}
-
-
-static void bios_error(uint16_t err)
-{
-    uint32_t err_code;
-
-    if (globals->platform_io) {
-        err_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_ERROR, PLATFORM_ERR_SUBSYS_BIOS, err);
-        outd(globals->platform_io + PLATFORM_IO_ERROR, err_code);
-    }
-
-    freeze();
 }
 
 
@@ -381,16 +346,6 @@ static uint32_t pci_read_bar_for_size(uint32_t bus, uint32_t device, uint bar)
     pci_write_32(bus, device, bar_address , original_val);
 
     return val;
-}
-
-
-static void pci_get_class(uint32_t bus, uint32_t device, PCIDeviceType* type)
-{
-    uint32_t config_data = pci_read_32(bus, device, PCI_OFFSET_REVISION);
-
-    type->prog_if = config_data >> 8;
-    type->sub_class = config_data >> 16;
-    type->class = config_data >> 24;
 }
 
 
@@ -750,16 +705,8 @@ static void pci_activation()
             if (type.sub_class == PCI_MASS_STORAGE_SUBCLASS_IDE) {
                 if (type.prog_if & 0x80) {
                     uint16_t command = pci_read_16(bus, device, PCI_OFFSET_COMMAND);
-                    uint16_t bm_io;
-
                     command |= PCI_COMMAND_BUS_MASTER;
                     pci_write_16(bus, device, PCI_OFFSET_COMMAND, command);
-
-                    //set device 0 dma active for both primary and secondary channel.
-                    //todo: use ATA_ID_CAP1_DMA_MASK
-                    bm_io = pci_read_32(bus, device, PCI_OFFSET_BAR_4) & PCI_BAR_IO_ADDRESS_MASK;
-                    outb(bm_io + 0x02, (1 << 5));
-                    outb(bm_io + 0x0a, (1 << 5));
                 }
             }
             break;
@@ -1202,10 +1149,7 @@ static  int load_rom_cb(uint32_t bus, uint32_t device, void __far * opaque)
     uint32_t class;
     uint8_t ok;
 
-    class = pci_read_32(bus, device, PCI_OFFSET_REVISION);
-    type.class = class >> 24;
-    type.sub_class = (class >> 16) & 0xff;
-    type.prog_if = (class >> 8) & 0xff;
+    pci_get_class(bus, device, &type);
 
     if (type.class == PCI_CLASS_DISPLAY && type.sub_class == PCI_DISPLAY_SUBCLASS_VGA &&
                                                         type.prog_if == PCI_VGA_PROGIF_VGACOMPAT) {
@@ -1319,6 +1263,7 @@ static void init()
     reset_platform_io();
 
     platform_debug_string("hello :)");
+    D_MESSAGE("sizeof(EBDA) is %u", sizeof(EBDA));
 
     ASSERT(sizeof(EBDA) <= BIOS_EBDA_DATA_KB * KB);
     ASSERT(*(uint16_t*)(bda + BDA_OFFSET_EBDA) == (BIOS_EBDA_ADDRESS >> 4));
@@ -1329,8 +1274,6 @@ static void init()
     ASSERT(OFFSET_OF(EBDAPrivate, real_hard_int_ss) == PRIVATE_OFFSET_HARD_INT_SS);
     ASSERT(OFFSET_OF(EBDAPrivate, real_hard_int_sp) == PRIVATE_OFFSET_HARD_INT_SP);
     ASSERT(OFFSET_OF(EBDAPrivate, bios_flags) == PRIVATE_OFFSET_FLAGS);
-
-    D_MESSAGE("sizeof(EBDA) is %u", sizeof(EBDA));
 
     init_cpu();
     init_rtc();

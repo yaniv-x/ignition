@@ -226,6 +226,16 @@ bool_t pci_find_class(uint index, PCIDeviceType __far * type, uint __far * bus,
 }
 
 
+void pci_get_class(uint bus, uint device, PCIDeviceType __far * type)
+{
+    uint32_t config_data = pci_read_32(bus, device, PCI_OFFSET_REVISION);
+
+    type->prog_if = config_data >> 8;
+    type->sub_class = config_data >> 16;
+    type->class = config_data >> 24;
+}
+
+
 static void pcibios_get_irq_option(UserRegs __far * context)
 {
     IRQRoutingOptionBuffer buf;
@@ -240,7 +250,7 @@ static void pcibios_get_irq_option(UserRegs __far * context)
     BIOS_PRIVATE_READ(irq_routing_table_size, &table_size);
     required_size = table_size * sizeof(IRQOption);
 
-    buff = (IRQRoutingOptionBuffer __far *)FAR_POINTER(context->es, (offset_t)context->edi);
+    buff = FAR_POINTER(IRQRoutingOptionBuffer, context->es, (offset_t)context->edi);
 
     BX(context) = NOX_PCI_IRQ_EXCLUSIVE_MASK;
 
@@ -253,7 +263,7 @@ static void pcibios_get_irq_option(UserRegs __far * context)
 
     buff->size = required_size;
 
-    dest = (IRQOption __far *)FAR_POINTER(buff->seg, buff->offset);
+    dest = FAR_POINTER(IRQOption, buff->seg, buff->offset);
 
     for (i = 0; i < table_size; i++) {
         BIOS_PRIVATE_READ( irq_routing_table[i], &dest[i]);

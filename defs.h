@@ -102,6 +102,8 @@
 #define PIC_ICW1_ICW4 (1 << 0)
 #define PIC_ICW4_8086_MODE (1 << 0)
 #define PIC_SPECIFIC_EOI_MASK (0x3 << 5)
+#define PIC_NUM_LINES 8
+#define PIC_NUM_CHIPS 2
 #define PIC1_ADDRESS 0x08
 #define PIC1_TIMER_PIN 0
 #define PIC1_KEYBOARD_PIN 1

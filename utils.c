@@ -27,6 +27,8 @@
 
 #include "types.h"
 #include "utils.h"
+#include "nox.h"
+#include "platform.h"
 
 
 void outb(uint16_t port, uint8_t val)
@@ -184,6 +186,21 @@ int find_lsb_64(uint64_t val)
     }
 
     return -1;
+}
+
+
+void mem_set(void __far * ptr, uint8_t patern, uint size)
+{
+    uint8_t __far * now = (uint8_t __far *)ptr;
+    uint8_t __far * end = now + size;
+
+    for (; now < end; now++) *now = patern;
+}
+
+
+void mem_reset(void __far * ptr, uint size)
+{
+    mem_set(ptr, 0, size);
 }
 
 
@@ -417,5 +434,27 @@ void format_mem_str(char __far *  dest, uint len, const char __far * format, ...
     format_str(format_str_mem_cb, &data, format, SKIP_STACK_ARG(const char __far *, args));
 
     dest[data.pos] = 0;
+}
+
+
+void bios_error(uint16_t code)
+{
+    uint32_t error_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_ERROR, PLATFORM_ERR_SUBSYS_BIOS, code);
+    platform_report_error(error_code);
+    freeze();
+}
+
+
+void bios_warn(uint16_t code)
+{
+    uint32_t warn_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_WARN, PLATFORM_ERR_SUBSYS_BIOS, code);
+    platform_report_error(warn_code);
+}
+
+
+void bios_info(uint16_t code)
+{
+    uint32_t info_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_INFO, PLATFORM_ERR_SUBSYS_BIOS, code);
+    platform_report_error(info_code);
 }
 

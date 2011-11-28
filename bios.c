@@ -31,34 +31,27 @@
 #include "utils.h"
 #include "platform.h"
 #include "pci.h"
-
-#define STI() {                                                 \
-    if (is_hard_int_context()) {                                \
-        bios_error(BIOS_ERROR_STI_WHILE_IN_IRQ_CONTEXT);        \
-    }                                                           \
-                                                                \
-    __asm { sti}                                                \
-}
+#include "bios.h"
 
 void call32(void);
 void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device);
 void unhandled_interrupt(void);
-void unhandled_irq0(void);
-void unhandled_irq1(void);
-void unhandled_irq2(void);
-void unhandled_irq3(void);
-void unhandled_irq4(void);
-void unhandled_irq5(void);
-void unhandled_irq6(void);
-void unhandled_irq7(void);
-void unhandled_irq8(void);
-void unhandled_irq9(void);
-void unhandled_irq10(void);
-void unhandled_irq11(void);
-void unhandled_irq12(void);
-void unhandled_irq13(void);
-void unhandled_irq14(void);
-void unhandled_irq15(void);
+void hard_interrup_0(void);
+void hard_interrup_1(void);
+void hard_interrup_2(void);
+void hard_interrup_3(void);
+void hard_interrup_4(void);
+void hard_interrup_5(void);
+void hard_interrup_6(void);
+void hard_interrup_7(void);
+void hard_interrup_8(void);
+void hard_interrup_9(void);
+void hard_interrup_10(void);
+void hard_interrup_11(void);
+void hard_interrup_12(void);
+void hard_interrup_13(void);
+void hard_interrup_14(void);
+void hard_interrup_15(void);
 void pit_interrupt_handler();
 void rtc_interrupt_handler();
 void keyboard_interrupt_handler();
@@ -69,10 +62,7 @@ void int1a_handler();
 
 #define FUNC_OFFSET(function) (uint16_t)(function)
 
-#define OFFSET_OF_PRIVATE(x) (OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, x))
-
-
-static uint16_t set_ds(uint16_t data_seg)
+uint16_t set_ds(uint16_t data_seg)
 {
     uint16_t prev;
 
@@ -98,7 +88,7 @@ static uint16_t get_cs()
 }
 
 
-static uint16_t get_ds()
+uint16_t get_ds()
 {
     uint16_t data_seg;
 
@@ -111,7 +101,7 @@ static uint16_t get_ds()
 }
 
 
-static void restore_ds()
+void restore_ds()
 {
    _asm {
         mov ax, cs
@@ -180,25 +170,6 @@ static void write_byte(uint16_t seg, uint16_t offset, uint8_t val)
 }
 
 
-static void mem_set(uint16_t seg, uint16_t offset, uint8_t patern, uint16_t n)
-{
-    uint8_t* now = (uint8_t*)offset;
-    uint8_t* end = now + n;
-
-    seg = set_ds(seg);
-
-    for (; now < end; now++) *now = patern;
-
-    set_ds(seg);
-}
-
-
-static void mem_reset(uint16_t seg, uint16_t offset, uint16_t n)
-{
-    mem_set(seg, offset, 0, n);
-}
-
-
 static uint8_t bda_read_byte(uint16_t offset)
 {
     return read_byte(BIOS_DATA_AREA_ADDRESS >> 4, offset);
@@ -211,7 +182,7 @@ static void bda_write_byte(uint16_t offset, uint8_t val)
 }
 
 
-static uint16_t bda_read_word(uint16_t offset)
+uint16_t bda_read_word(uint16_t offset)
 {
     return read_word(BIOS_DATA_AREA_ADDRESS >> 4, offset);
 }
@@ -235,7 +206,7 @@ static void bda_write_dword(uint16_t offset, uint32_t val)
 }
 
 
-static uint8_t ebda_read_byte(uint16_t offset)
+uint8_t ebda_read_byte(uint16_t offset)
 {
     uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
     return read_byte(seg, offset);
@@ -249,7 +220,7 @@ static void ebda_write_byte(uint16_t offset, uint16_t val)
 }
 
 
-static uint16_t ebda_read_word(uint16_t offset)
+uint16_t ebda_read_word(uint16_t offset)
 {
     uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
     return read_word(seg, offset);
@@ -270,32 +241,7 @@ static void ebda_write_dword(uint16_t offset, uint32_t val)
 }
 
 
-static void bios_error(uint16_t code)
-{
-    uint16_t error_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_ERROR, PLATFORM_ERR_SUBSYS_BIOS, code);
-    uint16_t port = ebda_read_word(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, platform_io));
-    outd(port + PLATFORM_IO_ERROR, error_code);
-    freeze();
-}
-
-
-static void bios_warn(uint16_t code)
-{
-    uint16_t error_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_WARN, PLATFORM_ERR_SUBSYS_BIOS, code);
-    uint16_t port = ebda_read_word(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, platform_io));
-    outd(port + PLATFORM_IO_ERROR, error_code);
-}
-
-
-static void bios_info(uint16_t code)
-{
-    uint16_t error_code = PLATFORM_MK_ERR(PLATFORM_ERR_TYPE_INFO, PLATFORM_ERR_SUBSYS_BIOS, code);
-    uint16_t port = ebda_read_word(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, platform_io));
-    outd(port + PLATFORM_IO_ERROR, error_code);
-}
-
-
-static uint8_t is_hard_int_context()
+uint8_t is_hard_int_context()
 {
     return ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags)) &
            BIOS_FLAGS_HARD_INT;
@@ -328,8 +274,8 @@ static inline void init_bios_data_area()
 {
     post(POST_CODE_BDA);
 
-    mem_reset(0, BIOS_DATA_AREA_ADDRESS, BIOS_DATA_AREA_SIZE);
-    mem_reset(BIOS_EBDA_ADDRESS >> 4, 0, BIOS_EBDA_DATA_KB * KB);
+    mem_reset(FAR_POINTER(void, 0, BIOS_DATA_AREA_ADDRESS), BIOS_DATA_AREA_SIZE);
+    mem_reset(FAR_POINTER(void, BIOS_EBDA_ADDRESS >> 4, 0), BIOS_EBDA_DATA_KB * KB);
 
     bda_write_word(BDA_OFFSET_EBDA, BIOS_EBDA_ADDRESS >> 4);
     ebda_write_byte(EBDA_OFFSET_SIZE, BIOS_EBDA_SIZE_KB);
@@ -355,19 +301,79 @@ static void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
 }
 
 
-void on_unhandled_irq(uint16_t irq)
+void on_hard_interrupt(uint16_t line)
 {
-    char buf[100];
-    format_mem_str(buf, sizeof(buf), "unhandled irq %u", irq);
-    platform_debug_string(buf);
+    uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
+    IntHandler* handler;
+    EBDA *ebda;
+    uint i;
 
-    if (irq > 7) {
-        outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | (irq % 8));
-        irq = 2;
+    set_ds(seg);
+    ebda = 0;
+    handler = ebda->private.int_handlers[line];
+
+    if (handler) {
+        do {
+            handler->cb(handler->opaque);
+            ASSERT(get_ds() == seg);
+            handler = handler->next;
+        } while (handler);
+
+        restore_ds();
+        bda_write_byte(BDA_OFFSET_LAST_IRQ, ~0);
+    } else {
+        restore_ds();
+        platform_printf("unhandled interrupt %u", line);
+        bda_write_byte(BDA_OFFSET_LAST_IRQ, 1 << line);
     }
 
-    outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | irq);
-    bda_write_byte(BDA_OFFSET_LAST_IRQ, 1 << irq);
+    if (line > 7) {
+        outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | (line - 8));
+        line = 2;
+    }
+
+    outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | line);
+}
+
+
+void register_interrupt_handler(uint line, int_cb_t cb, uint opaque)
+{
+    uint16_t seg;
+    EBDA *ebda;
+    uint i;
+
+    ASSERT(line < PIC_NUM_LINES * PIC_NUM_CHIPS);
+    ASSERT((1 << line) & NOX_PCI_IRQ_LINES_MASK);
+    ASSERT(cb);
+    NO_INTERRUPT();
+
+    seg = bda_read_word(BDA_OFFSET_EBDA);
+
+    set_ds(seg);
+    ebda = 0;
+
+    for (i= 0; i < INT_HANDLERS_POOL_SIZE; i++) {
+        if (ebda->private.handlers_pool[i].cb) {
+            continue;
+        }
+
+        ebda->private.handlers_pool[i].cb = cb;
+        ebda->private.handlers_pool[i].opaque = opaque;
+        ebda->private.handlers_pool[i].next = ebda->private.int_handlers[line];
+        ebda->private.int_handlers[line] = &ebda->private.handlers_pool[i];
+        restore_ds();
+
+        if (line > 7) {
+            outb(IO_PORT_PIC2 + 1, inb(IO_PORT_PIC2 + 1) & ~(1 << (line - 8)));
+        } else {
+            outb(IO_PORT_PIC1 + 1, inb(IO_PORT_PIC1 + 1) & ~(1 << line));
+        }
+        return;
+    }
+
+    restore_ds();
+    D_MESSAGE("out of interrupt slots");
+    bios_error(BISO_ERROR_REG_INT_FAILED);
 }
 
 
@@ -379,27 +385,27 @@ static void init_int_vector()
         set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
     }
 
-    set_int_vec(0x08, get_cs(), FUNC_OFFSET(unhandled_irq0));
-    set_int_vec(0x09, get_cs(), FUNC_OFFSET(unhandled_irq1));
-    set_int_vec(0x0a, get_cs(), FUNC_OFFSET(unhandled_irq2));
-    set_int_vec(0x0b, get_cs(), FUNC_OFFSET(unhandled_irq3));
-    set_int_vec(0x0c, get_cs(), FUNC_OFFSET(unhandled_irq4));
-    set_int_vec(0x0d, get_cs(), FUNC_OFFSET(unhandled_irq5));
-    set_int_vec(0x0e, get_cs(), FUNC_OFFSET(unhandled_irq6));
-    set_int_vec(0x0f, get_cs(), FUNC_OFFSET(unhandled_irq7));
+    set_int_vec(0x08, get_cs(), FUNC_OFFSET(hard_interrup_0));
+    set_int_vec(0x09, get_cs(), FUNC_OFFSET(hard_interrup_1));
+    set_int_vec(0x0a, get_cs(), FUNC_OFFSET(hard_interrup_2));
+    set_int_vec(0x0b, get_cs(), FUNC_OFFSET(hard_interrup_3));
+    set_int_vec(0x0c, get_cs(), FUNC_OFFSET(hard_interrup_4));
+    set_int_vec(0x0d, get_cs(), FUNC_OFFSET(hard_interrup_5));
+    set_int_vec(0x0e, get_cs(), FUNC_OFFSET(hard_interrup_6));
+    set_int_vec(0x0f, get_cs(), FUNC_OFFSET(hard_interrup_7));
 
     for (i = 0x10; i < 0x70; i++) {
         set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
     }
 
-    set_int_vec(0x70, get_cs(), FUNC_OFFSET(unhandled_irq8));
-    set_int_vec(0x71, get_cs(), FUNC_OFFSET(unhandled_irq9));
-    set_int_vec(0x72, get_cs(), FUNC_OFFSET(unhandled_irq10));
-    set_int_vec(0x72, get_cs(), FUNC_OFFSET(unhandled_irq11));
-    set_int_vec(0x74, get_cs(), FUNC_OFFSET(unhandled_irq12));
-    set_int_vec(0x75, get_cs(), FUNC_OFFSET(unhandled_irq13));
-    set_int_vec(0x76, get_cs(), FUNC_OFFSET(unhandled_irq14));
-    set_int_vec(0x77, get_cs(), FUNC_OFFSET(unhandled_irq15));
+    set_int_vec(0x70, get_cs(), FUNC_OFFSET(hard_interrup_8));
+    set_int_vec(0x71, get_cs(), FUNC_OFFSET(hard_interrup_9));
+    set_int_vec(0x72, get_cs(), FUNC_OFFSET(hard_interrup_10));
+    set_int_vec(0x72, get_cs(), FUNC_OFFSET(hard_interrup_11));
+    set_int_vec(0x74, get_cs(), FUNC_OFFSET(hard_interrup_12));
+    set_int_vec(0x75, get_cs(), FUNC_OFFSET(hard_interrup_13));
+    set_int_vec(0x76, get_cs(), FUNC_OFFSET(hard_interrup_14));
+    set_int_vec(0x77, get_cs(), FUNC_OFFSET(hard_interrup_15));
 
     for (i = 0x78; i < 0x100; i++) {
         set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
@@ -723,14 +729,16 @@ void on_rtc_interrupt()
 }
 
 
-static void delay(uint32_t milisec)
+void delay(uint32_t milisec)
 {
     uint64_t micro;
+    uint32_t flags;
 
     if (!milisec) {
         return;
     }
 
+    flags = get_eflags();
     micro = (uint64_t)milisec * 1000 + BIOS_PERIODIC_MICRO;
 
     ebda_write_dword(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_priodoc_ticks), 0);
@@ -753,6 +761,7 @@ static void delay(uint32_t milisec)
     }
 
     rtc_periodic_unref(BIOS_PERIODIC_USER_INTERNAL_DELAY);
+    put_eflags(flags);
 }
 
 
@@ -1955,6 +1964,8 @@ void init()
     if (ebda_read_byte(OFFSET_OF_PRIVATE(call_ret_val))) {
         int_exp_rom();
     }
+
+    init_ata();
 
     for (;;) {
         ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_LOAD_EXP_ROM);

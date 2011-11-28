@@ -27,6 +27,8 @@
 #ifndef _H_PCI
 #define _H_PCI
 
+#include "types.h"
+
 #define PCI_ADDRESS_INDEX_SHIFT 2
 #define PCI_ADDRESS_INDEX_BITS 6
 #define PCI_ADDRESS_FUNCTION_SHIFT 8
@@ -95,6 +97,12 @@
 
 #define PCI_MEM_MIN_SIZE 16
 
+#define PCI_CLASS_MASS_STORAGE 0x01
+#define PCI_MASS_STORAGE_SUBCLASS_IDE 0x01
+#define PCI_CLASS_DISPLAY 0x03
+#define PCI_DISPLAY_SUBCLASS_VGA 0x00
+#define PCI_VGA_PROGIF_VGACOMPAT 0x00
+
 #define PCI_ROM_GRANULARITY 512
 #define PCI_ROM_SIGNATURE FOUR_CHARS('PCIR')
 #define EXP_ROM_SIGNATURE 0xaa55
@@ -151,6 +159,7 @@ bool_t pci_is_io_enabled(uint bus, uint device);
 bool_t pci_is_mem_enabled(uint bus, uint device);
 bool_t pci_find_class(uint index, PCIDeviceType __far * type, uint __far * bus,
                       uint __far * device);
+void pci_get_class(uint bus, uint device, PCIDeviceType __far * type);
 
 void pcibios_service(UserRegs __far * context);
 

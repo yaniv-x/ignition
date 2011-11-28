@@ -3,7 +3,7 @@ LINK=~/watcom/binl/wlink
 CC=~/watcom/binl/wcc
 CC386=~/watcom/binl/wcc386
 
-C_SOURCES_16 = bios.c pci_16.c utils_16.c platform_16.c
+C_SOURCES_16 = bios.c pci_16.c utils_16.c platform_16.c ata.c
 C_SOURCES_32 = bios32.c pci_32.c utils_32.c service_directory.c platform_32.c
 C_SOURCES = $(C_SOURCES_16) $(C_SOURCES_32)
 
@@ -22,6 +22,7 @@ NASM_OBJECTS_32 = $(NASM_SOURCES_32:%.nasm=%.o)
 
 DEP_DIR = .deps
 DEP_FILE = $(DEP_DIR)/$(*F).d
+TMP_DEP_FILE = $(DEP_DIR)/$(*F).tmp
 
 OBJECTS_16 = $(C_OBJECTS_16) $(NASM_OBJECTS_16) jump.bin
 OBJECTS_32 = $(C_OBJECTS_32) $(NASM_OBJECTS_32)
@@ -31,11 +32,11 @@ AUTO_GEN = defs.inc
 
 %.o : %.c
 	@mkdir -p $(DEP_DIR)
-	$(C_COMPILE) -fr=/dev/null -i=.. -ad=$(DEP_FILE) $<
-	@cp $(DEP_FILE) $(DEP_FILE).tmp
+	$(C_COMPILE) -fr=/dev/null -i=.. -ad=$(TMP_DEP_FILE) $<
+	@cp $(TMP_DEP_FILE) $(DEP_FILE)
 	@sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' -e '/^$$/ d' -e 's/$$/ :/' \
-                                                        < $(DEP_FILE).tmp >> $(DEP_FILE)
-	@rm $(DEP_FILE).tmp
+                                                        < $(TMP_DEP_FILE) >> $(DEP_FILE)
+	@rm $(TMP_DEP_FILE)
 
 
 %.inc : %.h
@@ -47,11 +48,11 @@ AUTO_GEN = defs.inc
 
 %.o : %.nasm
 	@mkdir -p $(DEP_DIR)
-	@nasm -M -MT $@ $< > $(DEP_FILE)
-	@cp $(DEP_FILE) $(DEP_FILE).tmp
+	@nasm -M -MT $@ $< > $(TMP_DEP_FILE)
+	@cp $(TMP_DEP_FILE) $(DEP_FILE)
 	@sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' -e '/^$$/ d' -e 's/$$/ :/' \
-                                                        < $(DEP_FILE).tmp >> $(DEP_FILE)
-	@rm $(DEP_FILE).tmp
+                                                        < $(TMP_DEP_FILE) >> $(DEP_FILE)
+	@rm $(TMP_DEP_FILE)
 	nasm -f obj -o $@ $<
 
 
@@ -59,6 +60,7 @@ AUTO_GEN = defs.inc
 
 
 ignition.bin : bios.bin bios32.bin
+	@rm -f $@
 	cp bios32.bin ignition.bin
 	cat bios.bin >> $@
 

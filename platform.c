@@ -30,20 +30,34 @@
 #include "nox.h"
 
 
-static uint16_t pci_get_platform_io()
+static uint16_t get_port()
 {
     return pci_read_32(0, 0, PCI_OFFSET_BAR_0) & PCI_BAR_IO_ADDRESS_MASK;
+}
+
+
+void platform_report_error(uint32_t code)
+{
+    uint16_t port;
+
+    NO_INTERRUPT();
+    port = get_port();
+
+    if (port) {
+        outd(port + PLATFORM_IO_ERROR, code);
+    }
 }
 
 
 void platform_read(uint32_t offset, void __far * in_dest, uint32_t size)
 {
     uint8_t __far * dest = in_dest;
-    uint16_t port = pci_get_platform_io();
+    uint16_t port;
 
     NO_INTERRUPT();
     ASSERT(offset + size < (PLATFORM_MEM_PAGES << PAGE_SHIFT));
 
+    port = get_port();
     outb(port + PLATFORM_IO_SELECT, PLATFORM_REG_READ_POS);
     outd(port + PLATFORM_IO_REGISTER, offset);
 
@@ -56,10 +70,11 @@ void platform_read(uint32_t offset, void __far * in_dest, uint32_t size)
 void platform_write(uint32_t offset, const void __far * in_src, uint32_t size)
 {
     const uint8_t __far * src = in_src;
-    uint16_t port = pci_get_platform_io();
+    uint16_t port;
 
     NO_INTERRUPT();
 
+    port = get_port();
     outb(port + PLATFORM_IO_SELECT, PLATFORM_REG_WRITE_POS);
     outd(port + PLATFORM_IO_REGISTER, offset);
 
@@ -74,7 +89,7 @@ void platform_debug_string(const char __far * str)
     CLI();
 
     platform_write(PLATFORM_LOG_BUF_START, str, string_length(str) + 1);
-    outb(pci_get_platform_io() + PLATFORM_IO_LOG, 0);
+    outb(get_port() + PLATFORM_IO_LOG, 0);
 
     put_eflags(eflags);
 }
@@ -82,9 +97,11 @@ void platform_debug_string(const char __far * str)
 
 void platform_command(uint8_t cmd, void __far * args, uint32_t args_size)
 {
+    NO_INTERRUPT();
     ASSERT(args_size <= PLATFORM_CMD_BUF_SIZE);
+
     platform_write(PLATFORM_CMD_BUF_START, args, args_size);
-    outb(pci_get_platform_io() + PLATFORM_IO_CMD, cmd);
+    outb(get_port() + PLATFORM_IO_CMD, cmd);
 }
 
 
@@ -118,7 +135,7 @@ void platform_printf(const char __far * format, ...)
 
     data.pos = 0;
     data.end = PLATFORM_LOG_BUF_SIZE - 1;
-    data.port = pci_get_platform_io();
+    data.port = get_port();
 
     outb(data.port + PLATFORM_IO_SELECT, PLATFORM_REG_WRITE_POS);
     outd(data.port + PLATFORM_IO_REGISTER, PLATFORM_LOG_BUF_START);
@@ -127,7 +144,7 @@ void platform_printf(const char __far * format, ...)
     format_str(platform_printf_cb, &data, format, SKIP_STACK_ARG(const char __far *, args));
 
     outb(data.port + PLATFORM_IO_BYTE, 0);
-    outb(pci_get_platform_io() + PLATFORM_IO_LOG, 0);
+    outb(get_port() + PLATFORM_IO_LOG, 0);
 
     put_eflags(eflags);
 }

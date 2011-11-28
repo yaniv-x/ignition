@@ -50,7 +50,7 @@ group DGROUP _TEXT
 
 
 extern _init
-extern _on_unhandled_irq
+extern _on_hard_interrupt
 extern _set_irq_context
 extern _clear_irq_context
 
@@ -135,31 +135,67 @@ entry:
     popa
     ret
 
-%macro UNHANDLE_IRQ 1
-global _unhandled_irq%1
-_unhandled_irq%1:
+%macro HARD_INTERRUPT 1
+global _hard_interrup_%1
+_hard_interrup_%1:
+    push ds
+    push ax
+
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS], ss
+    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP], sp
+    mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SS]
+    mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SP]
+
+    pusha
+    push es
+    push fs
+    push gs
+
+    mov ax, cs
+    mov ds, ax
+
+    call _set_irq_context
     push word %1
-    call _on_unhandled_irq
-    add esp, 2
+    call _on_hard_interrupt
+    add sp, 2
+    call _clear_irq_context
+
+    pop gs
+    pop fs
+    pop es
+    popa
+
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS]
+    mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP]
+
+    pop ax
+    pop ds
+
     iret
 %endmacro
 
-UNHANDLE_IRQ 0
-UNHANDLE_IRQ 1
-UNHANDLE_IRQ 2
-UNHANDLE_IRQ 3
-UNHANDLE_IRQ 4
-UNHANDLE_IRQ 5
-UNHANDLE_IRQ 6
-UNHANDLE_IRQ 7
-UNHANDLE_IRQ 8
-UNHANDLE_IRQ 9
-UNHANDLE_IRQ 10
-UNHANDLE_IRQ 11
-UNHANDLE_IRQ 12
-UNHANDLE_IRQ 13
-UNHANDLE_IRQ 14
-UNHANDLE_IRQ 15
+HARD_INTERRUPT 0
+HARD_INTERRUPT 1
+HARD_INTERRUPT 2
+HARD_INTERRUPT 3
+HARD_INTERRUPT 4
+HARD_INTERRUPT 5
+HARD_INTERRUPT 6
+HARD_INTERRUPT 7
+HARD_INTERRUPT 8
+HARD_INTERRUPT 9
+HARD_INTERRUPT 10
+HARD_INTERRUPT 11
+HARD_INTERRUPT 12
+HARD_INTERRUPT 13
+HARD_INTERRUPT 14
+HARD_INTERRUPT 15
 
 %macro IRQ_HANDLER 1
 extern _on_%1_interrupt
@@ -242,7 +278,7 @@ INT_HANDLER 15 ; org F000h:F859h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER 16 ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes
 INT_HANDLER 1a ; org F000h:FE6Eh in IBM PC and 100%-compatible BIOSes
 
-_unhandled_interrupt:
+_unhandled_interrupt: ; org F000h:FF53h in IBM PC and 100%-compatible BIOSes
     iret
 
 align 8
@@ -295,6 +331,7 @@ _call32:
     or eax, CR0_PE
     mov cr0, eax
     jmp dword CODE_SEGMENT_SELECTOR:BIOS32_START_ADDRESS
+
 
 ; void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device);
 global _call_rom_init

@@ -44,6 +44,27 @@ typedef _Packed struct discriptor_reg_t {
 } discriptor_reg_t;
 
 
+typedef void (*int_cb_t)(uint opaque);
+
+typedef _Packed struct IntHandler {
+    int_cb_t cb;
+    uint opaque;
+    struct IntHandler* next;
+} IntHandler;
+
+
+#define INT_HANDLERS_POOL_SIZE 16
+#define MAX_ATA_DEVICES 16
+
+
+typedef _Packed struct ATADevice {
+    bool_t is_atapi;
+    bool_t is_dma;
+    uint16_t cmd_port;
+    uint16_t ctrl_port;
+} ATADevice;
+
+
 typedef _Packed struct EBDAPrivate {
     uint16_t real_mode_ss;
     uint16_t real_mode_sp;
@@ -87,6 +108,9 @@ typedef _Packed struct EBDAPrivate {
     uint32_t loaded_rom_address;
     uint8_t loaded_rom_bus;
     uint8_t loaded_rom_device;
+    IntHandler* int_handlers[PIC_NUM_LINES * PIC_NUM_CHIPS];
+    IntHandler handlers_pool[INT_HANDLERS_POOL_SIZE];
+    ATADevice ata_drvices[MAX_ATA_DEVICES];
 } EBDAPrivate;
 
 

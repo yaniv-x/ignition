@@ -27,6 +27,8 @@
 #ifndef _H_COMMON
 #define _H_COMMON
 
+#include "base_types.h"
+
 #define ALIGN(a, b) (((a) + ((b) - 1)) & ~((b) - 1))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -71,9 +73,9 @@
 
 
 #ifdef _M_I386
-#define FAR_POINTER(seg, offset) (((uint64_t)(seg) << 32) | (offset));
+#define FAR_POINTER(type, seg, offset) ((type __far *)(((uint64_t)(seg) << 32) | (offset)))
 #else
-#define FAR_POINTER(seg, offset) (((uint32_t)(seg) << 16) | (offset));
+#define FAR_POINTER(type, seg, offset) ((type __far *)(((uint32_t)(seg) << 16) | (offset)))
 #endif
 
 #define SKIP_STACK_ARG(type, from) \
@@ -120,7 +122,14 @@ void format_str(format_str_cb cb, void __far * opaque, const char __far * format
                 uint8_t __far * args);
 void format_mem_str(char __far *  dest, uint len, const char __far * format, ...);
 
+void mem_set(void __far * ptr, uint8_t patern, uint size);
+void mem_reset(void __far * ptr, uint size);
+
 uint32_t string_length(const char __far *  str);
+
+void bios_error(uint16_t code);
+void bios_warn(uint16_t code);
+void bios_info(uint16_t code);
 
 #endif
 

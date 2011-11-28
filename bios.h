@@ -24,21 +24,34 @@
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef _H_PLATFORM
-#define _H_PLATFORM
+#ifndef _H_BIOS
+#define _H_BIOS
 
 #include "types.h"
 
-#define BIOS_PRIVATE_READ(member, ptr)                                          \
-    platform_read(PLATFORM_BIOS_DATA_START + OFFSET_OF(PrivateData, member),    \
-                  ptr, SIZE_OF(PrivateData, member))
+#define STI() {                                                 \
+    if (is_hard_int_context()) {                                \
+        bios_error(BIOS_ERROR_STI_WHILE_IN_IRQ_CONTEXT);        \
+    }                                                           \
+                                                                \
+    __asm { sti}                                                \
+}
 
-void platform_report_error(uint32_t code);
-void platform_read(uint32_t offset, void __far * in_dest, uint32_t size);
-void platform_write(uint32_t offset, const void __far * in_src, uint32_t size);
-void platform_command(uint8_t cmd, void __far * args, uint32_t args_size);
-void platform_debug_string(const char __far * str);
-void platform_printf(const char __far * format, ...);
+#define OFFSET_OF_PRIVATE(x) (OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, x))
+
+
+uint16_t get_ds();
+uint16_t set_ds(uint16_t ds);
+void restore_ds();
+uint16_t bda_read_word(uint16_t offset);
+uint16_t ebda_read_word(uint16_t offset);
+uint8_t ebda_read_byte(uint16_t offset);
+
+void delay(uint32_t milisec);
+uint8_t is_hard_int_context();
+void register_interrupt_handler(uint line, int_cb_t cb, uint opaque);
+
+void init_ata();
 
 #endif
 
