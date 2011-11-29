@@ -35,23 +35,22 @@
 
 void call32(void);
 void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device);
-void unhandled_interrupt(void);
-void hard_interrup_0(void);
-void hard_interrup_1(void);
-void hard_interrup_2(void);
-void hard_interrup_3(void);
-void hard_interrup_4(void);
-void hard_interrup_5(void);
-void hard_interrup_6(void);
-void hard_interrup_7(void);
-void hard_interrup_8(void);
-void hard_interrup_9(void);
-void hard_interrup_10(void);
-void hard_interrup_11(void);
-void hard_interrup_12(void);
-void hard_interrup_13(void);
-void hard_interrup_14(void);
-void hard_interrup_15(void);
+void hard_interrup_0();
+void hard_interrup_1();
+void hard_interrup_2();
+void hard_interrup_3();
+void hard_interrup_4();
+void hard_interrup_5();
+void hard_interrup_6();
+void hard_interrup_7();
+void hard_interrup_8();
+void hard_interrup_9();
+void hard_interrup_10();
+void hard_interrup_11();
+void hard_interrup_12();
+void hard_interrup_13();
+void hard_interrup_14();
+void hard_interrup_15();
 void pit_interrupt_handler();
 void rtc_interrupt_handler();
 void keyboard_interrupt_handler();
@@ -59,6 +58,7 @@ void mouse_interrupt_handler();
 void int15_handler();
 void int16_handler();
 void int1a_handler();
+void unhandled_int_handler();
 
 #define FUNC_OFFSET(function) (uint16_t)(function)
 
@@ -382,7 +382,7 @@ static void init_int_vector()
     uint i;
 
     for (i = 0; i < 0x08; i++) {
-        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
+        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_int_handler));
     }
 
     set_int_vec(0x08, get_cs(), FUNC_OFFSET(hard_interrup_0));
@@ -395,7 +395,7 @@ static void init_int_vector()
     set_int_vec(0x0f, get_cs(), FUNC_OFFSET(hard_interrup_7));
 
     for (i = 0x10; i < 0x70; i++) {
-        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
+        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_int_handler));
     }
 
     set_int_vec(0x70, get_cs(), FUNC_OFFSET(hard_interrup_8));
@@ -408,7 +408,7 @@ static void init_int_vector()
     set_int_vec(0x77, get_cs(), FUNC_OFFSET(hard_interrup_15));
 
     for (i = 0x78; i < 0x100; i++) {
-        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_interrupt));
+        set_int_vec(i, get_cs(), FUNC_OFFSET(unhandled_int_handler));
     }
 }
 
@@ -661,6 +661,30 @@ void on_int1a(UserRegs __far * context)
     default:
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
+    }
+}
+
+
+void on_unhandled_int(UserRegs __far * context)
+{
+    uint8_t opcode = read_byte(context->cs, context->ip - 2);
+
+    if (opcode == 0xcd) {
+        D_MESSAGE("int 0x%x, eax 0x%lx", read_byte(context->cs, context->ip - 1), context->eax);
+        return;
+    }
+
+    opcode = read_byte(context->cs, context->ip - 1);
+
+    switch (opcode) {
+    case 0xcc: //debug interrupt
+        D_MESSAGE("int 0x%x, eax 0x%lx", 3, context->eax);
+        break;
+    case 0xce: // into
+        D_MESSAGE("int 0x%x, eax 0x%lx", 4, context->eax);
+        break;
+    default:
+        D_MESSAGE("unknown");
     }
 }
 

@@ -247,9 +247,9 @@ IRQ_HANDLER keyboard ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes
 IRQ_HANDLER mouse
 
 %macro INT_HANDLER 1
-extern _on_int%1
-global _int%1_handler
-_int%1_handler:
+extern _on_%1
+global _%1_handler
+_%1_handler:
     pushad
     push ds
     push es
@@ -262,7 +262,7 @@ _int%1_handler:
     mov ax, sp
     push ss
     push ax
-    call _on_int%1
+    call _on_%1
     add sp, 4
 
     pop gs
@@ -274,11 +274,12 @@ _int%1_handler:
     iret
 %endmacro
 
-INT_HANDLER 15 ; org F000h:F859h in IBM PC and 100%-compatible BIOSes
-INT_HANDLER 16 ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes
-INT_HANDLER 1a ; org F000h:FE6Eh in IBM PC and 100%-compatible BIOSes
+INT_HANDLER int15 ; org F000h:F859h in IBM PC and 100%-compatible BIOSes
+INT_HANDLER int16 ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes
+INT_HANDLER int1a ; org F000h:FE6Eh in IBM PC and 100%-compatible BIOSes
+INT_HANDLER unhandled_int
 
-_unhandled_interrupt: ; org F000h:FF53h in IBM PC and 100%-compatible BIOSes
+_dummy_interrupt: ; org F000h:FF53h in IBM PC and 100%-compatible BIOSes
     iret
 
 align 8
