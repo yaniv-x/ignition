@@ -6,6 +6,7 @@ file utils_16.o
 file pci_16.o
 file platform_16.o
 file ata.o
+file boot.o
 file lib16/i8d086.o
 file lib16/i8m086.o
 file lib16/u8rs086.o

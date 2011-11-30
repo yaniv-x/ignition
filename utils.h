@@ -73,9 +73,11 @@
 
 
 #ifdef _M_I386
-#define FAR_POINTER(type, seg, offset) ((type __far *)(((uint64_t)(seg) << 32) | (offset)))
+#define FAR_POINTER(type, seg, offset) \
+                       ((type __far *)(((uint64_t)(seg) << 32) | (uint32_t)(offset)))
 #else
-#define FAR_POINTER(type, seg, offset) ((type __far *)(((uint32_t)(seg) << 16) | (offset)))
+#define FAR_POINTER(type, seg, offset) \
+                       ((type __far *)(((uint32_t)(seg) << 16) | (uint16_t)(offset)))
 #endif
 
 #define SKIP_STACK_ARG(type, from) \

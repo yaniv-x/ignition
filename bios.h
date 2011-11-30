@@ -39,19 +39,38 @@
 
 #define OFFSET_OF_PRIVATE(x) (OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, x))
 
+#define FUNC_OFFSET(function) (uint16_t)(function)
 
+uint16_t get_cs();
 uint16_t get_ds();
 uint16_t set_ds(uint16_t ds);
 void restore_ds();
+
+void call32();
+
+uint16_t read_word(uint16_t seg, uint16_t offset);
+
 uint16_t bda_read_word(uint16_t offset);
+uint8_t bda_read_byte(uint16_t offset);
+void bda_write_byte(uint16_t offset, uint8_t val);
+
 uint16_t ebda_read_word(uint16_t offset);
 uint8_t ebda_read_byte(uint16_t offset);
+void ebda_write_byte(uint16_t offset, uint16_t val);
 
 void delay(uint32_t milisec);
 uint8_t is_hard_int_context();
 void register_interrupt_handler(uint line, int_cb_t cb, uint opaque);
+void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset);
 
-void init_ata();
+void ata_init();
+bool_t ata_read_sectors(uint16_t cmd_port, uint16_t ctrl_port, uint32_t address, uint count,
+                        uint8_t __far * dest);
+
+void boot_add_hd(uint index);
+void boot_add_cd(uint index);
+void boot();
+void boot_init();
 
 #endif
 

@@ -27,6 +27,7 @@
 segment _TEXT class=ENTRY USE16 align=1 CPU=686
 group DGROUP _TEXT
 
+%define BIOS16_STACK_BASE 0xfff0
 
 %include "defs.inc"
 
@@ -50,9 +51,11 @@ group DGROUP _TEXT
 
 
 extern _init
+extern _freeze
 extern _on_hard_interrupt
 extern _set_irq_context
 extern _clear_irq_context
+extern _on_int19
 
 
 global _unhandled_interrupt
@@ -74,7 +77,7 @@ entry:
     mov ds, ax
     xor ax, ax
     mov ss, ax
-    mov sp, 0xfff0
+    mov sp, BIOS16_STACK_BASE
     call _init
     cli
 .infloop:
@@ -274,11 +277,39 @@ _%1_handler:
     iret
 %endmacro
 
+INT_HANDLER int13 ; org F000h:EC59h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int15 ; org F000h:F859h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int16 ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int1a ; org F000h:FE6Eh in IBM PC and 100%-compatible BIOSes
 INT_HANDLER unhandled_int
 
+
+global _int18_handler
+_int18_handler:
+global _int19_handler
+_int19_handler: ; org F000h:E6F2h in IBM PC and 100%-compatible BIOSes
+    ; disable NMI
+    mov al, RTC_NMI_MASK
+    out IO_PORT_RTC_INDEX, al
+
+    ; reset stack
+    xor ax, ax
+    mov ss, ax
+    mov sp, BIOS16_STACK_BASE
+
+    ; disablr A20
+    mov dx, IO_PORT_SYSCTRL
+    in al, dx
+    and al, ~(1 << SYSCTRL_A20_BIT)
+    out dx, al
+
+    mov ax, cs
+    mov ds, ax
+
+    call _on_int19
+
+
+global _dummy_interrupt
 _dummy_interrupt: ; org F000h:FF53h in IBM PC and 100%-compatible BIOSes
     iret
 
@@ -347,4 +378,11 @@ _call_rom_init:
     POP_ALL
     pop bp
     ret
+
+
+global _far_call_no_return
+_far_call_no_return:
+    mov bp, sp
+    call far [bp]
+    call _freeze
 

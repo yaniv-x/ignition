@@ -32,6 +32,11 @@
 #include "pcibios.h"
 
 
+#define INT_HANDLERS_POOL_SIZE 16
+#define MAX_ATA_DEVICES 8
+#define MAX_BOOT_OPTIONS 8
+
+
 typedef _Packed struct discriptor_t {
     uint32_t low;
     uint32_t high;
@@ -52,17 +57,25 @@ typedef _Packed struct IntHandler {
     struct IntHandler* next;
 } IntHandler;
 
-
-#define INT_HANDLERS_POOL_SIZE 16
-#define MAX_ATA_DEVICES 16
-
+#define ATA_DESCRIPTION_MAX 32
 
 typedef _Packed struct ATADevice {
+    uint8_t hd_id;
     bool_t is_atapi;
     bool_t is_dma;
     uint16_t cmd_port;
     uint16_t ctrl_port;
+    char description[ATA_DESCRIPTION_MAX + 1];
 } ATADevice;
+
+
+typedef _Packed struct BootOption {
+   uint8_t type;
+   uint8_t flags;
+   void __far * boot_handler;
+   char __far * description;
+   uint8_t user_data;
+} BootOption;
 
 
 typedef _Packed struct EBDAPrivate {
@@ -110,7 +123,9 @@ typedef _Packed struct EBDAPrivate {
     uint8_t loaded_rom_device;
     IntHandler* int_handlers[PIC_NUM_LINES * PIC_NUM_CHIPS];
     IntHandler handlers_pool[INT_HANDLERS_POOL_SIZE];
-    ATADevice ata_drvices[MAX_ATA_DEVICES];
+    ATADevice ata_devices[MAX_ATA_DEVICES];
+    uint8_t boot_order[MAX_BOOT_OPTIONS];
+    BootOption boot_options[MAX_BOOT_OPTIONS];
 } EBDAPrivate;
 
 

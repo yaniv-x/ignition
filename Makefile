@@ -3,7 +3,7 @@ LINK=~/watcom/binl/wlink
 CC=~/watcom/binl/wcc
 CC386=~/watcom/binl/wcc386
 
-C_SOURCES_16 = bios.c pci_16.c utils_16.c platform_16.c ata.c
+C_SOURCES_16 = bios.c pci_16.c utils_16.c platform_16.c ata.c boot.c
 C_SOURCES_32 = bios32.c pci_32.c utils_32.c service_directory.c platform_32.c
 C_SOURCES = $(C_SOURCES_16) $(C_SOURCES_32)
 

@@ -50,6 +50,9 @@
 #define ATA_STATUS_DATA_REQUEST_MASK (1 << 3)
 #define ATA_STATUS_ERROR_MASK (1 << 0)
 
+#define ATA_DEVICE_LBA_MASK (1 << 6)
+#define ATA_DEVICE_ADDRESS_MASK ((1 << 4) - 1)
+
 #define ATA_IO_DATA 0
 #define ATA_IO_ERROR 1
 #define ATA_IO_FEATURE ATA_IO_ERROR
@@ -67,9 +70,12 @@
 
 #define ATA_PIO_BLOCK_SIZE 512
 
+#define ATA_ID_OFFSET_MODEL 27
+#define ATA_ID_MODEL_NUM_CHARS 40
 #define ATA_ID_OFFSET_CAP1 49
 #define ATA_ID_CAP1_DMA_MASK (1 << 8)
 
+#define ATA_CMD_READ_SECTORS 0x20
 #define ATA_CMD_IDENTIFY_DEVICE 0xec
 #define ATA_CMD_IDENTIFY_PACKET_DEVICE 0xa1
 
@@ -83,6 +89,9 @@ typedef struct PIOCmd {
     uint16_t blocks;
     uint16_t __far * output;
 } PIOCmd;
+
+
+void int13_handler();
 
 
 static void wait_ready(uint16_t alt_port)
@@ -175,51 +184,69 @@ static void identify_device(uint16_t cmd_port, uint16_t ctrl_port, uint8_t id_cm
         D_MESSAGE("id command failed");
         bios_error(BIOS_ERROR_ATA_ID_FAILED);
     }
-
-
-    // for now
-    for (i = 0; i < 20; i++) {
-        buf[27 + i] = (buf[27 + i] >> 8) | (buf[27 + i] << 8);
-    }
-
-    save_word = buf[47];
-    buf[47] = 0;
-    D_MESSAGE("%S CAP1 0x%x", (char __far *)&buf[27], buf[ATA_ID_OFFSET_CAP1]);
-    buf[47] = save_word;
 }
 
 
-static void add_ata_device(uint device_id, uint16_t cmd_port, uint16_t ctrl_port)
+static void add_ata_device(uint slot, uint16_t cmd_port, uint16_t ctrl_port)
 {
     uint16_t identity_buf[ATA_PIO_BLOCK_SIZE / 2];
     ATADevice* device_info;
     EBDA* ebda = 0;
+    uint8_t hd_id;
+    uint i;
 
     D_MESSAGE("0x%x 0x%x", cmd_port, ctrl_port);
 
     identify_device(cmd_port, ctrl_port, ATA_CMD_IDENTIFY_DEVICE, identity_buf);
 
+    hd_id = bda_read_byte(BDA_OFFSET_HD_ATTACHED);
+    bda_write_byte(BDA_OFFSET_HD_ATTACHED, hd_id + 1);
+
     set_ds(bda_read_word(BDA_OFFSET_EBDA));
-    device_info = &ebda->private.ata_drvices[device_id];
+    device_info = &ebda->private.ata_devices[slot];
     device_info->is_dma = (identity_buf[ATA_ID_OFFSET_CAP1] & ATA_ID_CAP1_DMA_MASK) ? TRUE : FALSE;
+    device_info->hd_id = hd_id | 0x80;
+    for (i = 0; i < ATA_DESCRIPTION_MAX; i += 2) {
+        device_info->description[i] = identity_buf[27 + (i >> 1)] >> 8;
+        device_info->description[i + 1] = identity_buf[27 + (i >> 1)];
+    }
+
+    device_info->description[ATA_DESCRIPTION_MAX] = 0;
     restore_ds();
+
+    D_MESSAGE("%S", FAR_POINTER(char, bda_read_word(BDA_OFFSET_EBDA), &device_info->description));
+
+    boot_add_hd(slot);
 }
 
 
-static void add_atapi_device(uint device_id, uint16_t cmd_port, uint16_t ctrl_port)
+static void add_atapi_device(uint slot, uint16_t cmd_port, uint16_t ctrl_port)
 {
     uint16_t identity_buf[ATA_PIO_BLOCK_SIZE / 2];
     ATADevice* device_info;
     EBDA* ebda = 0;
+    uint i;
 
     D_MESSAGE("0x%x 0x%x CPA1 0x%x", cmd_port, ctrl_port, identity_buf[ATA_ID_OFFSET_CAP1]);
 
     identify_device(cmd_port, ctrl_port, ATA_CMD_IDENTIFY_PACKET_DEVICE, identity_buf);
 
     set_ds(bda_read_word(BDA_OFFSET_EBDA));
-    device_info = &ebda->private.ata_drvices[device_id];
+    device_info = &ebda->private.ata_devices[slot];
     device_info->is_dma = (identity_buf[ATA_ID_OFFSET_CAP1] & ATA_ID_CAP1_DMA_MASK) ? TRUE : FALSE;
+
+    for (i = 0; i < ATA_DESCRIPTION_MAX; i += 2) {
+        device_info->description[i] = identity_buf[27 + (i >> 1)] >> 8;
+        device_info->description[i + 1] = identity_buf[27 + (i >> 1)];
+    }
+
+    device_info->description[ATA_DESCRIPTION_MAX] = 0;
+
     restore_ds();
+
+    D_MESSAGE("%S", FAR_POINTER(char, bda_read_word(BDA_OFFSET_EBDA), &device_info->description));
+
+    boot_add_cd(slot);
 }
 
 
@@ -235,7 +262,7 @@ static bool_t reg_test(uint16_t port)
 void ata_int_cb(uint device_id)
 {
     EBDA* ebda = 0;
-    ATADevice* device = &ebda->private.ata_drvices[device_id];
+    ATADevice* device = &ebda->private.ata_devices[device_id];
 
     inb(device->cmd_port + ATA_IO_STATUS);
 }
@@ -317,7 +344,7 @@ static uint prob_device(uint16_t cmd_port, uint16_t ctrl_port, uint line)
     }
 
     set_ds(bda_read_word(BDA_OFFSET_EBDA));
-    device_info = &ebda->private.ata_drvices[0];
+    device_info = &ebda->private.ata_devices[0];
 
     for (i = 0; i < MAX_ATA_DEVICES && device_info[i].cmd_port; i++) ;
 
@@ -349,7 +376,7 @@ static void update_bm_state(uint device_id, uint bus, uint device, bool_t primar
 {
     uint16_t bm_io = pci_read_32(bus, device, PCI_OFFSET_BAR_4) & PCI_BAR_IO_ADDRESS_MASK;
     uint16_t offset = primary ? 0x02 : 0x0a;
-    bool_t dma = ebda_read_byte(OFFSET_OF_PRIVATE(ata_drvices) +
+    bool_t dma = ebda_read_byte(OFFSET_OF_PRIVATE(ata_devices) +
                                 sizeof(ATADevice) * device_id +
                                 OFFSET_OF(ATADevice, is_dma));
     uint8_t val = (dma) ? (1 << 5) : 0;
@@ -429,8 +456,39 @@ static int ata_pci_cb(uint bus, uint device, void __far * opaque)
 }
 
 
-void init_ata()
+void on_int13(UserRegs __far * context)
 {
+    D_MESSAGE("not supported 0x%lx", context->eax);
+    context->flags |= (1 << CPU_FLAGS_CF_BIT);
+    AH(context) = 0x86;
+}
+
+
+bool_t ata_read_sectors(uint16_t cmd_port, uint16_t ctrl_port, uint32_t address, uint count,
+                        uint8_t __far * dest)
+{
+    PIOCmd cmd;
+
+    ASSERT((address & 0xf0000000) == 0); // todo: use ata id
+
+    mem_set(&cmd, 0, sizeof(cmd));
+    cmd.blocks = 1;
+    cmd.output = (uint16_t __far *)dest;
+
+    cmd.regs[ATA_IO_SECTOR_COUNT] = count;
+    cmd.regs[ATA_IO_LBA_LOW] = address;
+    cmd.regs[ATA_IO_LBA_MID] = address >> 8;
+    cmd.regs[ATA_IO_LBA_HIGH] = address >> 16;
+    cmd.regs[ATA_IO_DEVICE] = ATA_DEVICE_LBA_MASK | ((address >> 24) & ATA_DEVICE_ADDRESS_MASK);
+    cmd.regs[ATA_IO_COMMAND] = ATA_CMD_READ_SECTORS;
+
+    return ata_pio_in(cmd_port, ctrl_port, &cmd);
+}
+
+
+void ata_init()
+{
+    set_int_vec(0x13, get_cs(), FUNC_OFFSET(int13_handler));
     pci_for_each(ata_pci_cb, NULL);
 }
 

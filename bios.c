@@ -33,7 +33,6 @@
 #include "pci.h"
 #include "bios.h"
 
-void call32(void);
 void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device);
 void hard_interrup_0();
 void hard_interrup_1();
@@ -59,8 +58,8 @@ void int15_handler();
 void int16_handler();
 void int1a_handler();
 void unhandled_int_handler();
+void dummy_interrupt();
 
-#define FUNC_OFFSET(function) (uint16_t)(function)
 
 uint16_t set_ds(uint16_t data_seg)
 {
@@ -75,7 +74,7 @@ uint16_t set_ds(uint16_t data_seg)
 }
 
 
-static uint16_t get_cs()
+uint16_t get_cs()
 {
     uint16_t code_seg;
 
@@ -110,7 +109,7 @@ void restore_ds()
 }
 
 
-static uint16_t read_word(uint16_t seg, uint16_t offset)
+uint16_t read_word(uint16_t seg, uint16_t offset)
 {
     uint16_t val;
 
@@ -170,13 +169,13 @@ static void write_byte(uint16_t seg, uint16_t offset, uint8_t val)
 }
 
 
-static uint8_t bda_read_byte(uint16_t offset)
+uint8_t bda_read_byte(uint16_t offset)
 {
     return read_byte(BIOS_DATA_AREA_ADDRESS >> 4, offset);
 }
 
 
-static void bda_write_byte(uint16_t offset, uint8_t val)
+void bda_write_byte(uint16_t offset, uint8_t val)
 {
     write_byte(BIOS_DATA_AREA_ADDRESS >> 4, offset, val);
 }
@@ -213,7 +212,7 @@ uint8_t ebda_read_byte(uint16_t offset)
 }
 
 
-static void ebda_write_byte(uint16_t offset, uint16_t val)
+void ebda_write_byte(uint16_t offset, uint16_t val)
 {
     uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
     write_byte(seg, offset, val);
@@ -288,7 +287,7 @@ typedef _Packed struct IntVector {
 } IntVector;
 
 
-static void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
+void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
 {
     IntVector* entry = NULL;
     uint16_t prev_seg;
@@ -373,7 +372,7 @@ void register_interrupt_handler(uint line, int_cb_t cb, uint opaque)
 
     restore_ds();
     D_MESSAGE("out of interrupt slots");
-    bios_error(BISO_ERROR_REG_INT_FAILED);
+    bios_error(BISO_ERROR_REGISTER_INT_FAILED);
 }
 
 
@@ -442,6 +441,7 @@ void on_pit_interrupt()
 static void setup_pit_irq()
 {
     set_int_vec(0x08, get_cs(), FUNC_OFFSET(pit_interrupt_handler));
+    set_int_vec(0x1c, get_cs(), FUNC_OFFSET(dummy_interrupt));
     outb(IO_PORT_PIC1 + 1, (inb(IO_PORT_PIC1 + 1) & ~(1 << PIC1_TIMER_PIN)));
 }
 
@@ -557,6 +557,7 @@ void on_int15(UserRegs __far * context)
             context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
             break;
         default:
+            D_MESSAGE("not supported 0x%lx", context->eax);
             context->flags |= (1 << CPU_FLAGS_CF_BIT);
             AH(context) = 0x86;
         }
@@ -599,6 +600,7 @@ void on_int15(UserRegs __far * context)
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
     default:
+        D_MESSAGE("not supported 0x%lx", context->eax);
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
     }
@@ -659,6 +661,7 @@ void on_int1a(UserRegs __far * context)
         pcibios_service(context);
         break;
     default:
+        D_MESSAGE("not supported 0x%lx", context->eax);
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
     }
@@ -1681,6 +1684,7 @@ void on_int16(UserRegs __far * context)
         break;
     }
     default:
+        D_MESSAGE("not supported 0x%lx", context->eax);
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
     }
@@ -1982,6 +1986,8 @@ void init()
     init_keyboard();
     init_mouse();
 
+    boot_init();
+
     ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_LOAD_VGA);
     call32();
 
@@ -1989,7 +1995,7 @@ void init()
         int_exp_rom();
     }
 
-    init_ata();
+    ata_init();
 
     for (;;) {
         ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_LOAD_EXP_ROM);
@@ -2000,11 +2006,17 @@ void init()
         }
 
         int_exp_rom();
+        // todo: call PnP BEV or BCV as required and update boot options tables
     }
 
     STI();
 
     post(POST_CODE_TMP);
+
+    boot();
+
+    bios_error(BIOS_ERROR_UNEXPECTED_IP);
+
 
     //Octave 6
     play_note(1046, 250);
