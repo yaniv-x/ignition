@@ -60,12 +60,12 @@ typedef _Packed struct IntHandler {
 #define ATA_DESCRIPTION_MAX 32
 
 typedef _Packed struct ATADevice {
+    uint8_t flags;
     uint8_t hd_id;
-    bool_t is_atapi;
-    bool_t is_dma;
     uint16_t cmd_port;
     uint16_t ctrl_port;
     char description[ATA_DESCRIPTION_MAX + 1];
+    uint32_t sectors;
 } ATADevice;
 
 

@@ -95,27 +95,24 @@ void on_int19()
 
 static void hd_boot()
 {
-    ATADevice __far * devices;
-    uint32_t ebda_seg;
+    ATADevice __far * device;
     uint8_t hd_id;
-    uint16_t sig;
     uint i;
 
     __asm { mov hd_id, dl}
 
     D_MESSAGE("0x%x", hd_id);
 
-    ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
-    devices = FAR_POINTER(ATADevice, ebda_seg, OFFSET_OF_PRIVATE(ata_devices));
+    device = FAR_POINTER(ATADevice, bda_read_word(BDA_OFFSET_EBDA), OFFSET_OF_PRIVATE(ata_devices));
 
-    for ( i = 0; i < MAX_ATA_DEVICES; i++) {
-        if (devices[i].is_atapi || devices[i].hd_id != hd_id) {
+    for ( i = 0; i < MAX_ATA_DEVICES; i++, device++) {
+        if (!ata_is_hd(device) || device->hd_id != hd_id) {
             continue;
         }
 
-        if (!ata_read_sectors(devices[i].cmd_port, devices[i].ctrl_port, 0, 1,
-                              FAR_POINTER(uint8_t, 0, 0x7c00))) {
-            break;
+        if (!ata_read_sectors(device, 0, 1, FAR_POINTER(uint8_t, 0, 0x7c00))) {
+            D_MESSAGE("read failed");
+            freeze();
         }
 
         if (read_word(0, 0x7c00 + 510) == 0xaa55) {
@@ -143,11 +140,9 @@ static void cd_boot()
 }
 
 
-void boot_add_hd(uint slot)
+void boot_add_hd(ATADevice __far * device)
 {
     uint32_t ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
-    ATADevice __far * device = FAR_POINTER(ATADevice, ebda_seg, OFFSET_OF_PRIVATE(ata_devices)) +
-                                                                                               slot;
     BootOption __far * options = FAR_POINTER(BootOption, ebda_seg, OFFSET_OF_PRIVATE(boot_options));
     uint i;
 
@@ -168,11 +163,9 @@ void boot_add_hd(uint slot)
 }
 
 
-void boot_add_cd(uint slot)
+void boot_add_cd(ATADevice __far * device)
 {
     uint32_t ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
-    ATADevice __far * device = FAR_POINTER(ATADevice, ebda_seg, OFFSET_OF_PRIVATE(ata_devices)) +
-                                                                                               slot;
     BootOption __far * options = FAR_POINTER(BootOption, ebda_seg, OFFSET_OF_PRIVATE(boot_options));
     uint i;
 

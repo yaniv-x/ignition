@@ -376,6 +376,44 @@ void register_interrupt_handler(uint line, int_cb_t cb, uint opaque)
 }
 
 
+void unregister_interrupt_handler(uint line, int_cb_t cb, uint opaque)
+{
+    IntHandler** handler;
+    uint16_t seg;
+    EBDA *ebda;
+
+    ASSERT(line < PIC_NUM_LINES * PIC_NUM_CHIPS);
+    ASSERT(cb);
+    NO_INTERRUPT();
+
+    D_MESSAGE("");
+
+    seg = bda_read_word(BDA_OFFSET_EBDA);
+
+    set_ds(seg);
+    ebda = 0;
+
+    handler = &ebda->private.int_handlers[line];
+
+    while (*handler) {
+        IntHandler* h = *handler;
+
+        if (h->cb == cb &&  h->opaque == opaque) {
+            *handler = h->next;
+            mem_reset(h, sizeof(*h));
+            restore_ds();
+            return;
+        }
+
+        handler = &h->next;
+    }
+
+    restore_ds();
+    D_MESSAGE("not found");
+    bios_error(BISO_ERROR_UNREGISTER_INT_FAILED);
+}
+
+
 static void init_int_vector()
 {
     uint i;

@@ -30,6 +30,9 @@
 #include "bios.h"
 #include "error_codes.h"
 
+#define ATA_FLAGS_ATAPI (1 << 0)
+#define ATA_FLAGS_DMA (1 << 1)
+
 #define ATA_PROGIF_PRIMARY_NOT_FIX (1 << 1)
 #define ATA_PROGIF_SECONDARY_NOT_FIX (1 << 3)
 
@@ -70,10 +73,23 @@
 
 #define ATA_PIO_BLOCK_SIZE 512
 
+#define ATA_ID_OFFSET_GENERAL_CONF 0
+#define ATA_ID_GENERAL_CONF_NOT_ATA_MASK (1 << 15)
+#define ATA_ID_GENERAL_ATAPI_MASK (0x3 << 14)
+#define ATA_ID_GENERAL_ATAPI (0x2 << 14)
+#define ATA_ID_GENERAL_CONF_REMOVABLE_MASK (1 << 7)
+#define ATA_ID_GENERAL_CONF_INCOMPLETE (1 << 2)
+#define ATA_ID_GENERAL_COMMAND_SET_SHIFT 8
+#define ATA_ID_GENERAL_COMMAND_SET_BITS 5
+#define ATA_ID_GENERAL_COMMAND_SET_CD 0x05
 #define ATA_ID_OFFSET_MODEL 27
 #define ATA_ID_MODEL_NUM_CHARS 40
 #define ATA_ID_OFFSET_CAP1 49
+#define ATA_ID_CAP1_LBA_MASK (1 << 9)
 #define ATA_ID_CAP1_DMA_MASK (1 << 8)
+#define ATA_ID_OFFSET_VERSION 80
+#define ATA_ID_VERSION_ATA6_MASK (1 << 6)
+#define ATA_ID_OFFSET_ADDRESABEL_SECTORS 60
 
 #define ATA_CMD_READ_SECTORS 0x20
 #define ATA_CMD_IDENTIFY_DEVICE 0xec
@@ -81,7 +97,7 @@
 
 
 #define SOFT_REST_TIMEOUT_MS 5000
-#define INVALID_DEVICE_ID ~0
+#define INVALID_INDEX ~0
 
 
 typedef struct PIOCmd {
@@ -187,66 +203,153 @@ static void identify_device(uint16_t cmd_port, uint16_t ctrl_port, uint8_t id_cm
 }
 
 
-static void add_ata_device(uint slot, uint16_t cmd_port, uint16_t ctrl_port)
+static bool_t init_common(ATADevice __far * device_info, uint16_t __far * identity)
 {
-    uint16_t identity_buf[ATA_PIO_BLOCK_SIZE / 2];
-    ATADevice* device_info;
-    EBDA* ebda = 0;
-    uint8_t hd_id;
     uint i;
 
-    D_MESSAGE("0x%x 0x%x", cmd_port, ctrl_port);
+    if ((identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_CONF_INCOMPLETE)) {
+        D_MESSAGE("incomplete");
+        return FALSE;
+    }
 
-    identify_device(cmd_port, ctrl_port, ATA_CMD_IDENTIFY_DEVICE, identity_buf);
+    if (!(identity[ATA_ID_OFFSET_VERSION] & ATA_ID_VERSION_ATA6_MASK)) {
+        D_MESSAGE("not ATA-6");
+        return FALSE;
+    }
+
+    if ((identity[ATA_ID_OFFSET_CAP1] & ATA_ID_CAP1_DMA_MASK)) {
+        device_info->flags |= ATA_FLAGS_DMA;
+    }
+
+    if ((identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_CONF_NOT_ATA_MASK)) {
+        device_info->flags |= ATA_FLAGS_ATAPI;
+    }
+
+    for (i = 0; i < ATA_DESCRIPTION_MAX; i += 2) {
+        device_info->description[i] = identity[ATA_ID_OFFSET_MODEL + (i >> 1)] >> 8;
+        device_info->description[i + 1] = identity[ATA_ID_OFFSET_MODEL + (i >> 1)];
+    }
+
+    device_info->description[ATA_DESCRIPTION_MAX] = 0;
+
+    return TRUE;
+}
+
+
+static bool_t init_hd_params(ATADevice __far * device, uint16_t __far * identity)
+{
+    uint8_t hd_id;
+
+    if ((identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_CONF_NOT_ATA_MASK)) {
+        D_MESSAGE("not ATA");
+        return FALSE;
+    }
+
+    if (!init_common(device, identity)) {
+        return FALSE;
+    }
+
+    if (identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_CONF_REMOVABLE_MASK) {
+        D_MESSAGE("removable");
+        return FALSE;
+    }
+
+    if (!(identity[ATA_ID_OFFSET_CAP1] & ATA_ID_CAP1_LBA_MASK)) {
+        D_MESSAGE("no LBA");
+        return FALSE;
+    }
+
+    device->sectors = ((uint32_t)identity[ATA_ID_OFFSET_ADDRESABEL_SECTORS + 1] << 16) |
+                      identity[ATA_ID_OFFSET_ADDRESABEL_SECTORS];
 
     hd_id = bda_read_byte(BDA_OFFSET_HD_ATTACHED);
     bda_write_byte(BDA_OFFSET_HD_ATTACHED, hd_id + 1);
 
-    set_ds(bda_read_word(BDA_OFFSET_EBDA));
-    device_info = &ebda->private.ata_devices[slot];
-    device_info->is_dma = (identity_buf[ATA_ID_OFFSET_CAP1] & ATA_ID_CAP1_DMA_MASK) ? TRUE : FALSE;
-    device_info->hd_id = hd_id | 0x80;
-    for (i = 0; i < ATA_DESCRIPTION_MAX; i += 2) {
-        device_info->description[i] = identity_buf[27 + (i >> 1)] >> 8;
-        device_info->description[i + 1] = identity_buf[27 + (i >> 1)];
+    device->hd_id = hd_id | 0x80;
+
+    if (hd_id == 0) {
+        D_MESSAGE("todo: update interrupt vector 0x41");
+    } else if (hd_id == 1) {
+        D_MESSAGE("todo: update interrupt vector 0x46");
     }
 
-    device_info->description[ATA_DESCRIPTION_MAX] = 0;
-    restore_ds();
-
-    D_MESSAGE("%S", FAR_POINTER(char, bda_read_word(BDA_OFFSET_EBDA), &device_info->description));
-
-    boot_add_hd(slot);
+    return TRUE;
 }
 
 
-static void add_atapi_device(uint slot, uint16_t cmd_port, uint16_t ctrl_port)
+static bool_t add_ata_device(ATADevice __far * device)
 {
     uint16_t identity_buf[ATA_PIO_BLOCK_SIZE / 2];
-    ATADevice* device_info;
     EBDA* ebda = 0;
-    uint i;
 
-    D_MESSAGE("0x%x 0x%x CPA1 0x%x", cmd_port, ctrl_port, identity_buf[ATA_ID_OFFSET_CAP1]);
+    D_MESSAGE("0x%x 0x%x", device->cmd_port, device->ctrl_port);
 
-    identify_device(cmd_port, ctrl_port, ATA_CMD_IDENTIFY_PACKET_DEVICE, identity_buf);
+    identify_device(device->cmd_port, device->ctrl_port, ATA_CMD_IDENTIFY_DEVICE,
+                    identity_buf);
 
-    set_ds(bda_read_word(BDA_OFFSET_EBDA));
-    device_info = &ebda->private.ata_devices[slot];
-    device_info->is_dma = (identity_buf[ATA_ID_OFFSET_CAP1] & ATA_ID_CAP1_DMA_MASK) ? TRUE : FALSE;
-
-    for (i = 0; i < ATA_DESCRIPTION_MAX; i += 2) {
-        device_info->description[i] = identity_buf[27 + (i >> 1)] >> 8;
-        device_info->description[i + 1] = identity_buf[27 + (i >> 1)];
+    if (!init_hd_params(device, identity_buf)) {
+        return FALSE;
     }
 
-    device_info->description[ATA_DESCRIPTION_MAX] = 0;
+    D_MESSAGE("%S", device->description);
 
-    restore_ds();
+    boot_add_hd(device);
 
-    D_MESSAGE("%S", FAR_POINTER(char, bda_read_word(BDA_OFFSET_EBDA), &device_info->description));
+    return TRUE;
+}
 
-    boot_add_cd(slot);
+
+static bool_t init_cdrom_params(ATADevice __far * device, uint16_t __far * identity)
+{
+    uint8_t hd_id;
+    uint16_t command_set;
+
+    if ((identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_ATAPI_MASK)
+                                                             != ATA_ID_GENERAL_ATAPI) {
+        D_MESSAGE("not ATAPI");
+        return FALSE;
+    }
+
+    if (!init_common(device, identity)) {
+        return FALSE;
+    }
+
+    if (!(identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_CONF_REMOVABLE_MASK)) {
+        D_MESSAGE("not removable");
+        return FALSE;
+    }
+
+    command_set = identity[ATA_ID_OFFSET_GENERAL_CONF] >> ATA_ID_GENERAL_COMMAND_SET_SHIFT;
+    command_set &= ((1 << ATA_ID_GENERAL_COMMAND_SET_BITS) - 1);
+
+    if (command_set != ATA_ID_GENERAL_COMMAND_SET_CD) {
+        D_MESSAGE("unsupported command set 0x%x", command_set);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+
+static bool_t add_atapi_device(ATADevice __far * device)
+{
+    uint16_t identity_buf[ATA_PIO_BLOCK_SIZE / 2];
+    EBDA* ebda = 0;
+
+    D_MESSAGE("0x%x 0x%x ", device->cmd_port, device->ctrl_port);
+
+    identify_device(device->cmd_port, device->ctrl_port, ATA_CMD_IDENTIFY_PACKET_DEVICE,
+                    identity_buf);
+
+    if (!init_cdrom_params(device, identity_buf)) {
+        return FALSE;
+    }
+
+    D_MESSAGE("%S", device->description);
+
+    boot_add_cd(device);
+
+    return TRUE;
 }
 
 
@@ -270,7 +373,7 @@ void ata_int_cb(uint device_id)
 
 static uint prob_device(uint16_t cmd_port, uint16_t ctrl_port, uint line)
 {
-    ATADevice* device_info;
+    ATADevice __far * device_info;
     EBDA *ebda = 0;
     uint wait_time;
     uint8_t status;
@@ -280,6 +383,8 @@ static uint prob_device(uint16_t cmd_port, uint16_t ctrl_port, uint line)
     uint8_t high;
     uint8_t err;
     bool_t atapi;
+    uint16_t seg;
+    bool_t ok;
     uint i;
 
     // in linux the first step is writing and reading from the device regs in order to detect
@@ -301,7 +406,7 @@ static uint prob_device(uint16_t cmd_port, uint16_t ctrl_port, uint line)
             D_MESSAGE("mulfunction device/controller or no device @ 0x%x, 0x%x",
                       cmd_port, ctrl_port);
             bios_warn(BIOS_WARN_ATA_RESET_TIMEOUT);
-            return INVALID_DEVICE_ID;
+            return INVALID_INDEX;
         }
 
         delay(100);
@@ -316,7 +421,7 @@ static uint prob_device(uint16_t cmd_port, uint16_t ctrl_port, uint line)
 
     if (!reg_test(cmd_port)) {
         D_MESSAGE("no device @ 0x%x, 0x%x", cmd_port, ctrl_port);
-        return INVALID_DEVICE_ID;
+        return INVALID_INDEX;
     }
 
     if ((status & ATA_STATUS_ERROR_MASK)) {
@@ -339,46 +444,48 @@ static uint prob_device(uint16_t cmd_port, uint16_t ctrl_port, uint line)
     }
 
     if (err != 1) {
-        D_MESSAGE("diagnostic failed (0x%x, 0x%x)", cmd_port, ctrl_port );
+        D_MESSAGE("diagnostic failed (0x%x, 0x%x)", cmd_port, ctrl_port);
         bios_error(BIOS_ERROR_ATA_DIAGNOSTIC_FAILED);
     }
 
-    set_ds(bda_read_word(BDA_OFFSET_EBDA));
-    device_info = &ebda->private.ata_devices[0];
+    seg = bda_read_word(BDA_OFFSET_EBDA);
+    device_info = FAR_POINTER(ATADevice, seg, OFFSET_OF_PRIVATE(ata_devices));
 
-    for (i = 0; i < MAX_ATA_DEVICES && device_info[i].cmd_port; i++) ;
+    for (i = 0; i < MAX_ATA_DEVICES && device_info->cmd_port; i++, device_info++) ;
 
     if (i == MAX_ATA_DEVICES) {
-        restore_ds();
         D_MESSAGE("out of ata slot");
         bios_warn(BIOS_WARN_ATA_OUT_OF_SLOT);
-        return INVALID_DEVICE_ID;
+        return INVALID_INDEX;
     }
 
-    device_info[i].is_atapi = atapi;
-    device_info[i].cmd_port = cmd_port;
-    device_info[i].ctrl_port = ctrl_port;
-    restore_ds();
+    device_info->cmd_port = cmd_port;
+    device_info->ctrl_port = ctrl_port;
 
     register_interrupt_handler(line, ata_int_cb, i);
 
     if (atapi) {
-        add_atapi_device(i, cmd_port, ctrl_port);
+        ok = add_atapi_device(device_info);
     } else {
-        add_ata_device(i, cmd_port, ctrl_port);
+        ok = add_ata_device(device_info);
+    }
+
+    if (!ok) {
+        unregister_interrupt_handler(line, ata_int_cb, i);
+        mem_reset(device_info, sizeof(*device_info));
+        return INVALID_INDEX;
     }
 
     return i;
 }
 
 
-static void update_bm_state(uint device_id, uint bus, uint device, bool_t primary)
+static void update_bm_state(uint slot, uint bus, uint device, bool_t primary)
 {
     uint16_t bm_io = pci_read_32(bus, device, PCI_OFFSET_BAR_4) & PCI_BAR_IO_ADDRESS_MASK;
     uint16_t offset = primary ? 0x02 : 0x0a;
-    bool_t dma = ebda_read_byte(OFFSET_OF_PRIVATE(ata_devices) +
-                                sizeof(ATADevice) * device_id +
-                                OFFSET_OF(ATADevice, is_dma));
+    bool_t dma = !!(ebda_read_byte(OFFSET_OF_PRIVATE(ata_devices[slot]) +
+                                   OFFSET_OF(ATADevice, flags)) & ATA_FLAGS_DMA);
     uint8_t val = (dma) ? (1 << 5) : 0;
 
     ASSERT(bm_io);
@@ -396,7 +503,7 @@ static void init_ide(uint bus, uint device, uint prog_if)
     uint16_t secondary_ctrl_port;
     uint8_t primary_line;
     uint8_t secondary_line;
-    uint id;
+    uint slot;
 
     if ((prog_if & ATA_PROGIF_PRIMARY_NOT_FIX)) {
         primary_cmd_port = pci_read_32(bus, device, PCI_OFFSET_BAR_0) & PCI_BAR_IO_ADDRESS_MASK;
@@ -419,18 +526,18 @@ static void init_ide(uint bus, uint device, uint prog_if)
     }
 
     if (primary_cmd_port) {
-        id = prob_device(primary_cmd_port, primary_ctrl_port, primary_line);
+        slot = prob_device(primary_cmd_port, primary_ctrl_port, primary_line);
 
-        if (id != INVALID_DEVICE_ID && (prog_if & 0x80)) {
-            update_bm_state(id, bus, device, TRUE);
+        if (slot != INVALID_INDEX && (prog_if & 0x80)) {
+            update_bm_state(slot, bus, device, TRUE);
         }
     }
 
     if (secondary_cmd_port) {
-        id = prob_device(secondary_cmd_port, secondary_ctrl_port, secondary_line);
+        slot = prob_device(secondary_cmd_port, secondary_ctrl_port, secondary_line);
 
-        if (id != INVALID_DEVICE_ID && (prog_if & 0x80)) {
-            update_bm_state(id, bus, device, FALSE);
+        if (slot != INVALID_INDEX && (prog_if & 0x80)) {
+            update_bm_state(slot, bus, device, FALSE);
         }
     }
 }
@@ -464,25 +571,38 @@ void on_int13(UserRegs __far * context)
 }
 
 
-bool_t ata_read_sectors(uint16_t cmd_port, uint16_t ctrl_port, uint32_t address, uint count,
+bool_t ata_is_cdrom(ATADevice __far * device)
+{
+    return !!(device->flags & ATA_FLAGS_ATAPI);
+}
+
+
+bool_t ata_is_hd(ATADevice __far * device)
+{
+    return !(device->flags & ATA_FLAGS_ATAPI);
+}
+
+
+bool_t ata_read_sectors(ATADevice __far * device, uint32_t address, uint count,
                         uint8_t __far * dest)
 {
     PIOCmd cmd;
 
-    ASSERT((address & 0xf0000000) == 0); // todo: use ata id
+    ASSERT(count > 0 && count <= 256);
+    ASSERT(address + count > address && address + count <= device->sectors);
 
     mem_set(&cmd, 0, sizeof(cmd));
     cmd.blocks = 1;
     cmd.output = (uint16_t __far *)dest;
 
-    cmd.regs[ATA_IO_SECTOR_COUNT] = count;
+    cmd.regs[ATA_IO_SECTOR_COUNT] = (count == 256) ? 0 : count;
     cmd.regs[ATA_IO_LBA_LOW] = address;
     cmd.regs[ATA_IO_LBA_MID] = address >> 8;
     cmd.regs[ATA_IO_LBA_HIGH] = address >> 16;
     cmd.regs[ATA_IO_DEVICE] = ATA_DEVICE_LBA_MASK | ((address >> 24) & ATA_DEVICE_ADDRESS_MASK);
     cmd.regs[ATA_IO_COMMAND] = ATA_CMD_READ_SECTORS;
 
-    return ata_pio_in(cmd_port, ctrl_port, &cmd);
+    return ata_pio_in(device->cmd_port, device->ctrl_port, &cmd);
 }
 
 

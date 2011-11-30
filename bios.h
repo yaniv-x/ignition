@@ -61,14 +61,19 @@ void ebda_write_byte(uint16_t offset, uint16_t val);
 void delay(uint32_t milisec);
 uint8_t is_hard_int_context();
 void register_interrupt_handler(uint line, int_cb_t cb, uint opaque);
+void unregister_interrupt_handler(uint line, int_cb_t cb, uint opaque);
 void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset);
 
-void ata_init();
-bool_t ata_read_sectors(uint16_t cmd_port, uint16_t ctrl_port, uint32_t address, uint count,
-                        uint8_t __far * dest);
 
-void boot_add_hd(uint index);
-void boot_add_cd(uint index);
+bool_t ata_is_cdrom(ATADevice __far * device);
+bool_t ata_is_hd(ATADevice __far * device);
+bool_t ata_read_sectors(ATADevice __far * device, uint32_t address, uint count,
+                        uint8_t __far * dest);
+void ata_init();
+
+
+void boot_add_hd(ATADevice __far * device);
+void boot_add_cd(ATADevice __far * device);
 void boot();
 void boot_init();
 
