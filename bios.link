@@ -12,6 +12,7 @@ file lib16/i8m086.o
 file lib16/u8rs086.o
 file lib16/i8ls086.o
 file lib16/i4d.o
+file lib16/i4m.o
 
 order
     clname ENTRY

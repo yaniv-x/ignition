@@ -32,6 +32,7 @@
 
 #define ATA_FLAGS_ATAPI (1 << 0)
 #define ATA_FLAGS_DMA (1 << 1)
+#define ATA_FLAGS_48BIT (1 << 2)
 
 #define ATA_PROGIF_PRIMARY_NOT_FIX (1 << 1)
 #define ATA_PROGIF_SECONDARY_NOT_FIX (1 << 3)
@@ -90,14 +91,29 @@
 #define ATA_ID_OFFSET_VERSION 80
 #define ATA_ID_VERSION_ATA6_MASK (1 << 6)
 #define ATA_ID_OFFSET_ADDRESABEL_SECTORS 60
+#define ATA_ID_OFFSET_CMD_SET_2 83
+#define ATA_ID_OFFSET_CMD_SET_2_ENABLE 86
+#define ATA_ID_CMD_SET_2_48BIT_MASK (1 << 10)
+#define ATA_ID_OFFSET_ADDR_SECTORS_48 100
+
 
 #define ATA_CMD_READ_SECTORS 0x20
+#define ATA_CMD_READ_SECTORS_EXT 0x24
 #define ATA_CMD_IDENTIFY_DEVICE 0xec
 #define ATA_CMD_IDENTIFY_PACKET_DEVICE 0xa1
 
 
 #define SOFT_REST_TIMEOUT_MS 5000
 #define INVALID_INDEX ~0
+#define BAD_ADDRESS ~0UL
+#define SECTORS_PER_TRACK 63
+#define MAX_HEADS 255
+#define MAX_CYLINDERS 1024
+#define MAX_SECTORS ((uint32_t)MAX_CYLINDERS * MAX_HEADS * SECTORS_PER_TRACK)
+
+
+#define CURRENT_REG 0
+#define PREVIOUS_REG 1
 
 
 typedef struct PIOCmd {
@@ -105,6 +121,15 @@ typedef struct PIOCmd {
     uint16_t blocks;
     uint16_t __far * output;
 } PIOCmd;
+
+
+typedef struct PIOCmdExt {
+    uint8_t regs[6][2];
+    uint8_t device;
+    uint8_t command;
+    uint16_t blocks;
+    uint16_t __far * output;
+} PIOCmdExt;
 
 
 void int13_handler();
@@ -126,23 +151,10 @@ static bool_t is_busy(uint16_t alt_port)
 }
 
 
-static bool_t ata_pio_in(uint16_t cmd_port, uint16_t ctrl_port, PIOCmd __far * cmd)
+static bool_t _ata_pio_in(uint16_t cmd_port, uint16_t ctrl_port, uint16_t blocks,
+                          uint16_t __far * dest)
 {
     uint8_t status;
-    uint16_t __far * dest;
-    uint16_t blocks;
-    uint i;
-
-    NO_INTERRUPT();
-
-    wait_ready(ctrl_port);
-
-    for (i = 1; i < sizeof(cmd->regs); i++) {
-        outb(cmd_port + i, cmd->regs[i]);
-    }
-
-    dest = cmd->output;
-    blocks = cmd->blocks;
 
     while (blocks--) {
         uint word_count;
@@ -161,11 +173,6 @@ static bool_t ata_pio_in(uint16_t cmd_port, uint16_t ctrl_port, PIOCmd __far * c
 
         if (!(status & ATA_STATUS_DATA_REQUEST_MASK)) {
             D_MESSAGE("expecting DRQ"); //error
-
-            for (i = 1; i < sizeof(cmd->regs); i++) {
-                cmd->regs[i] = inb(cmd_port + i);
-            }
-
             return FALSE;
         }
 
@@ -176,11 +183,43 @@ static bool_t ata_pio_in(uint16_t cmd_port, uint16_t ctrl_port, PIOCmd __far * c
         }
     }
 
-    for (i = 1; i < sizeof(cmd->regs); i++) {
-        cmd->regs[i] = inb(cmd_port + i);
+    return TRUE;
+}
+
+
+static bool_t ata_pio_in(uint16_t cmd_port, uint16_t ctrl_port, PIOCmd __far * cmd)
+{
+    uint i;
+
+    NO_INTERRUPT();
+
+    wait_ready(ctrl_port);
+
+    for (i = ATA_IO_FEATURE; i <= ATA_IO_COMMAND; i++) {
+        outb(cmd_port + i, cmd->regs[i]);
     }
 
-    return TRUE;
+    return _ata_pio_in(cmd_port, ctrl_port, cmd->blocks, cmd->output);
+}
+
+
+static bool_t ata_pio_in_ext(uint16_t cmd_port, uint16_t ctrl_port, PIOCmdExt __far * cmd)
+{
+    uint i;
+
+    NO_INTERRUPT();
+
+    wait_ready(ctrl_port);
+
+    for (i = ATA_IO_FEATURE; i < ATA_IO_DEVICE; i++) {
+        outb(cmd_port + i, cmd->regs[i][PREVIOUS_REG]);
+        outb(cmd_port + i, cmd->regs[i][CURRENT_REG]);
+    }
+
+    outb(cmd_port + ATA_IO_DEVICE, cmd->device);
+    outb(cmd_port + ATA_IO_COMMAND, cmd->command);
+
+    return _ata_pio_in(cmd_port, ctrl_port, cmd->blocks, cmd->output);
 }
 
 
@@ -203,7 +242,7 @@ static void identify_device(uint16_t cmd_port, uint16_t ctrl_port, uint8_t id_cm
 }
 
 
-static bool_t init_common(ATADevice __far * device_info, uint16_t __far * identity)
+static bool_t init_common(ATADevice __far * device, uint16_t __far * identity)
 {
     uint i;
 
@@ -218,21 +257,43 @@ static bool_t init_common(ATADevice __far * device_info, uint16_t __far * identi
     }
 
     if ((identity[ATA_ID_OFFSET_CAP1] & ATA_ID_CAP1_DMA_MASK)) {
-        device_info->flags |= ATA_FLAGS_DMA;
+        device->flags |= ATA_FLAGS_DMA;
     }
 
     if ((identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_CONF_NOT_ATA_MASK)) {
-        device_info->flags |= ATA_FLAGS_ATAPI;
+        device->flags |= ATA_FLAGS_ATAPI;
     }
 
     for (i = 0; i < ATA_DESCRIPTION_MAX; i += 2) {
-        device_info->description[i] = identity[ATA_ID_OFFSET_MODEL + (i >> 1)] >> 8;
-        device_info->description[i + 1] = identity[ATA_ID_OFFSET_MODEL + (i >> 1)];
+        device->description[i] = identity[ATA_ID_OFFSET_MODEL + (i >> 1)] >> 8;
+        device->description[i + 1] = identity[ATA_ID_OFFSET_MODEL + (i >> 1)];
     }
 
-    device_info->description[ATA_DESCRIPTION_MAX] = 0;
+    device->description[ATA_DESCRIPTION_MAX] = 0;
 
     return TRUE;
+}
+
+
+static void init_translat_params(ATADevice __far * device)
+{
+    uint32_t sectors = MIN(device->sectors, MAX_SECTORS);
+    uint32_t heads = sectors / (SECTORS_PER_TRACK * MAX_CYLINDERS);
+
+    if (heads > 128) {
+        heads = 255;
+    } else if (heads > 64) {
+        heads = 128;
+    } else if (heads > 32) {
+        heads = 64;
+    } else if (heads > 16) {
+        heads = 32;
+    } else  {
+        heads = 16;
+    }
+
+    device->heads = heads;
+    device->cylinders = sectors / (SECTORS_PER_TRACK * heads);
 }
 
 
@@ -259,8 +320,22 @@ static bool_t init_hd_params(ATADevice __far * device, uint16_t __far * identity
         return FALSE;
     }
 
-    device->sectors = ((uint32_t)identity[ATA_ID_OFFSET_ADDRESABEL_SECTORS + 1] << 16) |
-                      identity[ATA_ID_OFFSET_ADDRESABEL_SECTORS];
+    if ((identity[ATA_ID_OFFSET_CMD_SET_2] & ATA_ID_CMD_SET_2_48BIT_MASK)) {
+
+        ASSERT((identity[ATA_ID_OFFSET_CMD_SET_2_ENABLE] & ATA_ID_CMD_SET_2_48BIT_MASK)); //48BIT is
+                                                                                          // fixed
+        D_MESSAGE("48bit");
+        device->flags |= ATA_FLAGS_48BIT;
+
+        device->sectors = ((uint64_t)identity[ATA_ID_OFFSET_ADDR_SECTORS_48 + 2] << 32) |
+                          ((uint64_t)identity[ATA_ID_OFFSET_ADDR_SECTORS_48 + 1] << 16) |
+                          identity[ATA_ID_OFFSET_ADDR_SECTORS_48];
+    } else {
+        device->sectors = ((uint32_t)identity[ATA_ID_OFFSET_ADDRESABEL_SECTORS + 1] << 16) |
+                          identity[ATA_ID_OFFSET_ADDRESABEL_SECTORS];
+    }
+
+    init_translat_params(device);
 
     hd_id = bda_read_byte(BDA_OFFSET_HD_ATTACHED);
     bda_write_byte(BDA_OFFSET_HD_ATTACHED, hd_id + 1);
@@ -563,11 +638,178 @@ static int ata_pci_cb(uint bus, uint device, void __far * opaque)
 }
 
 
+static ATADevice __far * find_hd(uint8_t id)
+{
+    uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
+    ATADevice __far * device = FAR_POINTER(ATADevice, seg, OFFSET_OF_PRIVATE(ata_devices));
+    uint i;
+
+    for (i = 0; i < MAX_ATA_DEVICES; i++, device++) {
+        if (ata_is_hd(device) && device->hd_id == id) {
+            return device;
+        }
+    }
+
+    return NULL;
+}
+
+
+uint32_t chs_to_lba(ATADevice __far * device, uint16_t cylinder, uint8_t head, uint8_t sector)
+{
+    if (cylinder >= device->cylinders || head >= device->heads || !sector ||
+                                                                    sector >= SECTORS_PER_TRACK) {
+        D_MESSAGE("bad CHS address 0x%x(0x%x) 0x%x(0x%x) 0x%x",
+                  cylinder, device->cylinders, head,  device->heads, sector);
+        return BAD_ADDRESS;
+    }
+    return (cylinder * device->heads + head) * 63 + (sector - 1);
+}
+
+
+enum {
+    HD_ERR_SUCCESS = 0,
+    HD_ERR_BAD_COMMAND_OR_PARAM = 1,
+    HD_ERR_READ_FAILED = 4,
+};
+
+
+typedef _Packed struct EDDPacket {
+    uint8_t packet_size;
+    uint8_t _0;
+    uint8_t count; // < 128
+    uint8_t _1;
+    far_ptr_16_t buf_address; // in case of ~0 then flat_buf_address is used
+    uint64_t block_address;
+    uint64_t flat_buf_address;
+} EDDPacket;
+
+
+static void int13_error(UserRegs __far * context, uint8_t err)
+{
+    AH(context) = err;
+    bda_write_byte(BDA_OFFSET_HD_RESAULT, err);
+    context->flags |= (1 << CPU_FLAGS_CF_BIT);
+}
+
+
+static void int13_success(UserRegs __far * context)
+{
+    bda_write_byte(BDA_OFFSET_HD_RESAULT, HD_ERR_SUCCESS);
+    AH(context) = HD_ERR_SUCCESS;
+    context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+}
+
+
 void on_int13(UserRegs __far * context)
 {
-    D_MESSAGE("not supported 0x%lx", context->eax);
-    context->flags |= (1 << CPU_FLAGS_CF_BIT);
-    AH(context) = 0x86;
+    switch (AH(context)) {
+    case INT13_FUNC_EXT_READ: {
+        EDDPacket __far * packet = FAR_POINTER(EDDPacket, context->ds, SI(context));
+        ATADevice __far * device;
+        uint8_t __far * dest;
+
+        if (packet->packet_size < 16 || !(device = find_hd(DL(context)))) {
+            D_MESSAGE("bad packet");
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        if (packet->count > 0x7f || packet->block_address >= device->sectors ||
+                                          packet->block_address + packet->count > device->sectors) {
+            D_MESSAGE("bad packet 2");
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        if (packet->buf_address != ~0UL) {
+            dest = (uint8_t __far *)packet->buf_address;
+        } else {
+            if (packet->packet_size < sizeof(*packet)) {
+                D_MESSAGE("bad packet");
+                int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+                break;
+            }
+
+            D_MESSAGE("flat");
+            dest = FAR_POINTER(uint8_t, packet->flat_buf_address >> 4,
+                               packet->flat_buf_address & 0x0f);
+        }
+
+        if (!ata_read_sectors(device, packet->block_address, packet->count, dest)) {
+            D_MESSAGE("read failed");
+            int13_error(context, HD_ERR_READ_FAILED);
+            break;
+        }
+
+        int13_success(context);
+        break;
+    }
+    case INT13_FUNC_READ_SECTORS: {
+        ATADevice __far * device = find_hd(DL(context));
+        uint32_t address;
+
+        if (!device || !AL(context)) {
+            D_MESSAGE("bad args");
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        address = chs_to_lba(device,(((uint16_t)CL(context) & 0xc0) << 2) | CH(context),
+                             DH(context), CL(context) & 0x3f);
+
+        if (address == BAD_ADDRESS || address + AL(context) > device->sectors) {
+            D_MESSAGE("bad args");
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        if (!ata_read_sectors(device, address, AL(context),
+                              FAR_POINTER(uint8_t, context->es, BX(context)))) {
+            D_MESSAGE("read failed");
+            int13_error(context, HD_ERR_READ_FAILED);
+            break;
+        }
+
+        int13_success(context);
+        break;
+    }
+    case INT13_FUNC_GET_DRIVE_PARAMETERS: {
+        ATADevice __far * device = find_hd(DL(context));
+
+        if (!device) {
+            D_MESSAGE("bad args");
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        AL(context) = 0;
+        CL(context) = (((device->cylinders - 1) >> 2) & 0xc0) | 63;
+        CH(context) = device->cylinders - 1;
+        DH(context) = device->heads - 1;
+        DL(context) = bda_read_byte(BDA_OFFSET_HD_ATTACHED);
+        int13_success(context);
+        break;
+    }
+    case INT13_FUNC_INSTALLATION_CHECK: {
+        ATADevice __far * device;
+
+        if (BX(context) != 0x55aa || !(device = find_hd(DL(context)))) {
+            D_MESSAGE("bad args");
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        AH(context) = 0x30; //EDD 3.0
+        CX(context) = (1 << 0); // Fixed disk subset (42h, 43h, 44h, 47h, and 48)
+        BX(context) = 0xaa55;
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        bda_write_byte(BDA_OFFSET_HD_RESAULT, HD_ERR_SUCCESS);
+        break;
+    }
+    default:
+        D_MESSAGE("not supported 0x%lx", context->eax);
+        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+    }
 }
 
 
@@ -583,26 +825,46 @@ bool_t ata_is_hd(ATADevice __far * device)
 }
 
 
-bool_t ata_read_sectors(ATADevice __far * device, uint32_t address, uint count,
+bool_t ata_read_sectors(ATADevice __far * device, uint64_t address, uint count,
                         uint8_t __far * dest)
 {
-    PIOCmd cmd;
-
     ASSERT(count > 0 && count <= 256);
     ASSERT(address + count > address && address + count <= device->sectors);
 
-    mem_set(&cmd, 0, sizeof(cmd));
-    cmd.blocks = 1;
-    cmd.output = (uint16_t __far *)dest;
+    if (address + count <= (1UL << 28) - 1) {
+        PIOCmd cmd;
 
-    cmd.regs[ATA_IO_SECTOR_COUNT] = (count == 256) ? 0 : count;
-    cmd.regs[ATA_IO_LBA_LOW] = address;
-    cmd.regs[ATA_IO_LBA_MID] = address >> 8;
-    cmd.regs[ATA_IO_LBA_HIGH] = address >> 16;
-    cmd.regs[ATA_IO_DEVICE] = ATA_DEVICE_LBA_MASK | ((address >> 24) & ATA_DEVICE_ADDRESS_MASK);
-    cmd.regs[ATA_IO_COMMAND] = ATA_CMD_READ_SECTORS;
+        mem_set(&cmd, 0, sizeof(cmd));
+        cmd.blocks = count;
+        cmd.output = (uint16_t __far *)dest;
 
-    return ata_pio_in(device->cmd_port, device->ctrl_port, &cmd);
+        cmd.regs[ATA_IO_SECTOR_COUNT] = (count == 256) ? 0 : count;
+        cmd.regs[ATA_IO_LBA_LOW] = address;
+        cmd.regs[ATA_IO_LBA_MID] = address >> 8;
+        cmd.regs[ATA_IO_LBA_HIGH] = address >> 16;
+        cmd.regs[ATA_IO_DEVICE] = ATA_DEVICE_LBA_MASK | ((address >> 24) & ATA_DEVICE_ADDRESS_MASK);
+        cmd.regs[ATA_IO_COMMAND] = ATA_CMD_READ_SECTORS;
+
+        return ata_pio_in(device->cmd_port, device->ctrl_port, &cmd);
+    } else {
+        PIOCmdExt cmd;
+
+        mem_set(&cmd, 0, sizeof(cmd));
+        cmd.blocks = count;
+        cmd.output = (uint16_t __far *)dest;
+
+        cmd.regs[ATA_IO_SECTOR_COUNT][CURRENT_REG] = count;
+        cmd.regs[ATA_IO_LBA_LOW][PREVIOUS_REG] = address >> 40;
+        cmd.regs[ATA_IO_LBA_MID][PREVIOUS_REG] = address >> 32;
+        cmd.regs[ATA_IO_LBA_LOW][PREVIOUS_REG] = address >> 24;
+        cmd.regs[ATA_IO_LBA_HIGH][CURRENT_REG] = address >> 16;
+        cmd.regs[ATA_IO_LBA_MID][CURRENT_REG] = address >> 8;
+        cmd.regs[ATA_IO_LBA_LOW][CURRENT_REG] = address;
+        cmd.device = ATA_DEVICE_LBA_MASK;
+        cmd.command = ATA_CMD_READ_SECTORS_EXT;
+
+        return ata_pio_in_ext(device->cmd_port, device->ctrl_port, &cmd);
+    }
 }
 
 

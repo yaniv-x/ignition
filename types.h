@@ -65,7 +65,9 @@ typedef _Packed struct ATADevice {
     uint16_t cmd_port;
     uint16_t ctrl_port;
     char description[ATA_DESCRIPTION_MAX + 1];
-    uint32_t sectors;
+    uint64_t sectors;
+    uint16_t cylinders;        // 1-1048
+    uint8_t heads;             // 1-255
 } ATADevice;
 
 

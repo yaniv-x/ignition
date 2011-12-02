@@ -67,7 +67,7 @@ void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset);
 
 bool_t ata_is_cdrom(ATADevice __far * device);
 bool_t ata_is_hd(ATADevice __far * device);
-bool_t ata_read_sectors(ATADevice __far * device, uint32_t address, uint count,
+bool_t ata_read_sectors(ATADevice __far * device, uint64_t address, uint count,
                         uint8_t __far * dest);
 void ata_init();
 
