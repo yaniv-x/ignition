@@ -277,6 +277,7 @@ _%1_handler:
     iret
 %endmacro
 
+INT_HANDLER int12 ; org F000h:F841h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int13 ; org F000h:EC59h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int15 ; org F000h:F859h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int16 ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes

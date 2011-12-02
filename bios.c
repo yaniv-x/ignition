@@ -54,6 +54,7 @@ void pit_interrupt_handler();
 void rtc_interrupt_handler();
 void keyboard_interrupt_handler();
 void mouse_interrupt_handler();
+void int12_handler();
 void int15_handler();
 void int16_handler();
 void int1a_handler();
@@ -637,6 +638,54 @@ void on_int15(UserRegs __far * context)
     case INT15_FUNC_DEVICE_POST:
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
+    case INT15_FUNC_GET_EXT_MEMORY_SIZE: {
+        uint32_t above_1m = ebda_read_dword(OFFSET_OF_PRIVATE(above_1m_pages));
+        if (above_1m > 63 * (MB >> PAGE_SHIFT)) {
+            AX(context) = 63 * KB;
+        } else {
+            AX(context) = above_1m * 4;
+        }
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    }
+    case INT15_FUNC_GET_BIG_MEMORY_SIZE: {
+        uint32_t above_1m = ebda_read_dword(OFFSET_OF_PRIVATE(above_1m_pages));
+        above_1m <<= 2;
+        AX(context) = above_1m;
+        DX(context) = above_1m >> 16;
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    }
+    case INT15_FUNC_BIG_MEM: {
+        switch (AL(context)) {
+        case INT15_BIG_MEM_GET_SIZE: {
+            uint32_t above_1m = ebda_read_dword(OFFSET_OF_PRIVATE(above_1m_pages));
+
+            if (above_1m > 15 * (MB >> PAGE_SHIFT)) {
+                AX(context) = 15 * KB;
+                above_1m -= 15 * (MB >> PAGE_SHIFT);
+                above_1m /= 64 * KB;
+                BX(context) = above_1m;
+            } else {
+                AX(context) = above_1m * 4;
+                BX(context) = 0;
+            }
+
+            CX(context) = AX(context);
+            DX(context) = BX(context);
+
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+            break;
+        }
+        case INT15_BIG_MEM_GET_MAP:
+            //break;
+        default:
+             D_MESSAGE("not supported 0x%lx", context->eax);
+             context->flags |= (1 << CPU_FLAGS_CF_BIT);
+             AH(context) = 0x86;
+        }
+        break;
+    }
     default:
         D_MESSAGE("not supported 0x%lx", context->eax);
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
@@ -645,9 +694,25 @@ void on_int15(UserRegs __far * context)
 }
 
 
+void on_int12(UserRegs __far * context)
+{
+    AX(context) = BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB;
+    context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+}
+
+
 void on_int1a(UserRegs __far * context)
 {
     switch (AH(context)) {
+    case INT1A_FUNC_GET_SYSTEM_TIME: {
+        uint32_t ticks = bda_read_dword(BDA_OFFSET_TICKS);
+
+        DX(context) = ticks;
+        CX(context) = ticks >> 16;
+        AL(context) = bda_read_byte(BDA_OFFSET_TICKS_ROLLOVER);
+        bda_write_byte(BDA_OFFSET_TICKS_ROLLOVER, 0);
+        break;
+    }
     case INT1A_FUNC_GET_TIME:
         if ((rtc_read(0x0a) & RTC_REG_A_UPDATE_IN_PROGRESS)) {
             context->flags |= (1 << CPU_FLAGS_CF_BIT);
@@ -1364,7 +1429,6 @@ static uint8_t kbd_process_compound(uint8_t scan)
 }
 
 
-
 static void kbd_send_data_sync(uint8_t val)
 {
     uint8_t status;
@@ -2025,6 +2089,8 @@ void init()
     init_mouse();
 
     boot_init();
+
+    set_int_vec(0x12, get_cs(), FUNC_OFFSET(int12_handler));
 
     ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_LOAD_VGA);
     call32();
