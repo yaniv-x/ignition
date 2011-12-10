@@ -151,22 +151,6 @@ static void mem_copy(void* dest, const void* src, uint32_t size)
 }
 
 
-static void string_copy(uint8_t* dest, const uint8_t* src, uint32_t buf_size)
-{
-    const uint8_t* end;
-
-    if (!buf_size) {
-        return;
-    }
-
-    end = src + MIN(string_length(src), buf_size - 1);
-
-    for (; src < end; src++, dest++) *dest = *src;
-
-    *dest = EOS;
-}
-
-
 static EBDA* get_ebda()
 {
     uint32_t seg = *(uint16_t*)(bda + BDA_OFFSET_EBDA);

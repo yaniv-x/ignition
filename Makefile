@@ -87,7 +87,7 @@ jump.bin : jump.nasm
 
 
 clean :
-	rm -f *.o *.bin defs.inc bios32.map fixup
+	rm -f *.o *.bin defs.inc bios32.map bios.map fixup
 	rm -rf .deps
 
 

@@ -205,15 +205,19 @@ extern _on_%1_interrupt
 global _%1_interrupt_handler
 _%1_interrupt_handler:
     push ds
-    push ax
 
-    xor ax, ax
-    mov ds, ax
-    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
-    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS], ss
-    mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP], sp
-    mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SS]
-    mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SP]
+    ; for now disable stack swap (windows loader assume the stack will not be
+    ; change)
+
+    ;push ax
+
+    ;xor ax, ax
+    ;mov ds, ax
+    ;mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    ;mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS], ss
+    ;mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP], sp
+    ;mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SS]
+    ;mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SP]
 
     pusha
     push es
@@ -232,13 +236,13 @@ _%1_interrupt_handler:
     pop es
     popa
 
-    xor ax, ax
-    mov ds, ax
-    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
-    mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS]
-    mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP]
+    ;xor ax, ax
+    ;mov ds, ax
+    ;mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    ;mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS]
+    ;mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP]
 
-    pop ax
+    ;pop ax
     pop ds
 
     iret
@@ -277,6 +281,7 @@ _%1_handler:
     iret
 %endmacro
 
+INT_HANDLER int11 ; org F000h:F84Dh in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int12 ; org F000h:F841h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int13 ; org F000h:EC59h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int15 ; org F000h:F859h in IBM PC and 100%-compatible BIOSes
@@ -298,7 +303,7 @@ _int19_handler: ; org F000h:E6F2h in IBM PC and 100%-compatible BIOSes
     mov ss, ax
     mov sp, BIOS16_STACK_BASE
 
-    ; disablr A20
+    ; disable A20
     mov dx, IO_PORT_SYSCTRL
     in al, dx
     and al, ~(1 << SYSCTRL_A20_BIT)

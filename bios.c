@@ -54,6 +54,7 @@ void pit_interrupt_handler();
 void rtc_interrupt_handler();
 void keyboard_interrupt_handler();
 void mouse_interrupt_handler();
+void int11_handler();
 void int12_handler();
 void int15_handler();
 void int16_handler();
@@ -194,7 +195,7 @@ static void bda_write_word(uint16_t offset, uint16_t val)
 }
 
 
-static uint32_t bda_read_dword(uint16_t offset)
+uint32_t bda_read_dword(uint16_t offset)
 {
     return read_dword(BIOS_DATA_AREA_ADDRESS >> 4, offset);
 }
@@ -664,7 +665,7 @@ void on_int15(UserRegs __far * context)
             if (above_1m > 15 * (MB >> PAGE_SHIFT)) {
                 AX(context) = 15 * KB;
                 above_1m -= 15 * (MB >> PAGE_SHIFT);
-                above_1m /= 64 * KB;
+                above_1m /= (64 / 4);
                 BX(context) = above_1m;
             } else {
                 AX(context) = above_1m * 4;
@@ -694,10 +695,15 @@ void on_int15(UserRegs __far * context)
 }
 
 
+void on_int11(UserRegs __far * context)
+{
+    AX(context) = bda_read_word(BDA_OFFSET_EQUIPMENT);
+}
+
+
 void on_int12(UserRegs __far * context)
 {
     AX(context) = BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB;
-    context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
 }
 
 
@@ -711,6 +717,7 @@ void on_int1a(UserRegs __far * context)
         CX(context) = ticks >> 16;
         AL(context) = bda_read_byte(BDA_OFFSET_TICKS_ROLLOVER);
         bda_write_byte(BDA_OFFSET_TICKS_ROLLOVER, 0);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
     }
     case INT1A_FUNC_GET_TIME:
@@ -1774,7 +1781,7 @@ void on_int16(UserRegs __far * context)
         break;
     }
     case INT16_FUNC_PEEK_KEY_EXT: {
-         uint16_t key = kbd_peek_key();
+        uint16_t key = kbd_peek_key();
 
         if (key) {
             context->flags &= ~(1 << CPU_FLAGS_ZF_BIT);
@@ -1785,6 +1792,9 @@ void on_int16(UserRegs __far * context)
 
         break;
     }
+    case INT16_FUNC_GET_SHIFT_FLAGS:
+        AL(context) = bda_read_byte(BDA_OFFSET_KBD_FLAGS_1);
+        break;
     default:
         D_MESSAGE("not supported 0x%lx", context->eax);
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
@@ -2068,6 +2078,26 @@ static void play_note(uint32_t frequency, uint duration)
 }
 
 
+static void term_put_char_cb(void __far * opaque, char val)
+{
+    __asm {
+        push bx
+        mov ah, 0x0e
+        mov al, val
+        mov bx, 0
+        int  0x10
+        pop bx
+    }
+}
+
+
+void therm_printf(const char* format, ...)
+{
+    uint8_t __far * args = (uint8_t __far *)&format;
+    format_str(term_put_char_cb, NULL, format, SKIP_STACK_ARG(const char __far *, args));
+}
+
+
 void init()
 {
     uint i;
@@ -2090,6 +2120,7 @@ void init()
 
     boot_init();
 
+    set_int_vec(0x11, get_cs(), FUNC_OFFSET(int11_handler));
     set_int_vec(0x12, get_cs(), FUNC_OFFSET(int12_handler));
 
     ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_LOAD_VGA);

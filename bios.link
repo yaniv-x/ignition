@@ -19,7 +19,10 @@ order
     clname CODE
     clname DATA
 
-disable 1023
 option nodefaultlibs
+option map
+
+disable 1023
+
 
 

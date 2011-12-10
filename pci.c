@@ -238,7 +238,6 @@ void pci_get_class(uint bus, uint device, PCIDeviceType __far * type)
 
 static void pcibios_get_irq_option(UserRegs __far * context)
 {
-    IRQRoutingOptionBuffer buf;
     IRQRoutingOptionBuffer __far * buff;
     IRQOption __far * dest;
     uint required_size;
@@ -255,7 +254,7 @@ static void pcibios_get_irq_option(UserRegs __far * context)
     BX(context) = NOX_PCI_IRQ_EXCLUSIVE_MASK;
 
     if (required_size > buff->size) {
-        D_MESSAGE("0x%x is too small, 0x%x needed", (uint32_t)buff->size, required_size);
+        D_MESSAGE("0x%x is too small, 0x%x needed", (uint)buff->size, required_size);
         buff->size = required_size;
         AH(context) = PCIBIOS_BUFFER_TOO_SMALL;
         return;
@@ -306,6 +305,8 @@ void pcibios_set_irq(UserRegs __far * context)
 void pcibios_service(UserRegs __far * context)
 {
     NO_INTERRUPT();
+
+    D_MESSAGE();
 
     FLAGS(context) |= (1 << CPU_FLAGS_CF_BIT);
 

@@ -50,6 +50,7 @@ void call32();
 
 uint16_t read_word(uint16_t seg, uint16_t offset);
 
+uint32_t bda_read_dword(uint16_t offset);
 uint16_t bda_read_word(uint16_t offset);
 uint8_t bda_read_byte(uint16_t offset);
 void bda_write_byte(uint16_t offset, uint8_t val);
@@ -63,12 +64,12 @@ uint8_t is_hard_int_context();
 void register_interrupt_handler(uint line, int_cb_t cb, uint opaque);
 void unregister_interrupt_handler(uint line, int_cb_t cb, uint opaque);
 void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset);
-
+void therm_printf(const char* format, ...);
 
 bool_t ata_is_cdrom(ATADevice __far * device);
 bool_t ata_is_hd(ATADevice __far * device);
-bool_t ata_read_sectors(ATADevice __far * device, uint64_t address, uint count,
-                        uint8_t __far * dest);
+uint ata_read_sectors(ATADevice __far * device, uint64_t address, uint count,
+                      uint8_t __far * dest);
 void ata_init();
 
 

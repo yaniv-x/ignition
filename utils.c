@@ -214,6 +214,46 @@ uint32_t string_length(const uint8_t __far * str)
 }
 
 
+void string_copy(char __far *  dest, const char __far *  src)
+{
+    for (;; dest++, src++) {
+        if (!(*dest = *src)) {
+            return;
+        }
+    }
+}
+
+
+void string_copy_n(char __far *  dest, const char __far *  src, uint dest_size)
+{
+    const uint8_t __far * end;
+
+    if (!dest_size) {
+        return;
+    }
+
+    end = src + MIN(string_length(src), dest_size - 1);
+
+    for (; src < end; src++, dest++) *dest = *src;
+
+    *dest = EOS;
+}
+
+
+int8_t checksum8(void __far * start, uint size)
+{
+    uint8_t res = 0;
+    uint8_t *now = (uint8_t*)start;
+    uint8_t *end = now + size;
+
+    for (; now < end; now++) {
+        res += *now;
+    }
+
+    return -res;
+}
+
+
 static void format_put_x(format_str_cb cb, void __far * opaque, uint64_t val, uint bits)
 {
     static char conv_table[] = {

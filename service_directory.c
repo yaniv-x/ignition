@@ -35,7 +35,7 @@ void pcibios_service_entry(void);
 
 void directory_service(UserRegs __far * context)
 {
-    platform_debug_string(__FUNCTION__);
+    D_MESSAGE("");
 
     context->eflags &= ~(1 << CPU_FLAGS_CF_BIT);
 

@@ -115,9 +115,18 @@ static void hd_boot()
             freeze();
         }
 
+        therm_printf("boot...");
+
         if (read_word(0, 0x7c00 + 510) == 0xaa55) {
             __asm {
                 cli
+                xor ax, ax
+                mov ds, ax
+                mov es, ax
+                mov fs, ax
+                mov gs, ax
+                mov ss, ax
+                mov sp, 0x7c00
                 mov dl, hd_id
                 db 0xea
                 dw 0x7c00, 0x0000
