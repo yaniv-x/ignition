@@ -54,12 +54,14 @@ uint32_t bda_read_dword(uint16_t offset);
 uint16_t bda_read_word(uint16_t offset);
 uint8_t bda_read_byte(uint16_t offset);
 void bda_write_byte(uint16_t offset, uint8_t val);
+void bda_write_word(uint16_t offset, uint16_t val);
 
 uint16_t ebda_read_word(uint16_t offset);
 uint8_t ebda_read_byte(uint16_t offset);
 void ebda_write_byte(uint16_t offset, uint16_t val);
 
 void delay(uint32_t milisec);
+void beep();
 uint8_t is_hard_int_context();
 void register_interrupt_handler(uint line, int_cb_t cb, uint opaque);
 void unregister_interrupt_handler(uint line, int_cb_t cb, uint opaque);
@@ -77,6 +79,9 @@ void boot_add_hd(ATADevice __far * device);
 void boot_add_cd(ATADevice __far * device);
 void boot();
 void boot_init();
+
+
+void keyboard_init();
 
 #endif
 
