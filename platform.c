@@ -38,14 +38,17 @@ static uint16_t get_port()
 
 void platform_report_error(uint32_t code)
 {
+    uint32_t flags = get_eflags();
     uint16_t port;
 
-    NO_INTERRUPT();
+    CLI();
     port = get_port();
 
     if (port) {
         outd(port + PLATFORM_IO_ERROR, code);
     }
+
+    put_eflags(flags);
 }
 
 
