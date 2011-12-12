@@ -559,6 +559,29 @@ static uint8_t start_wait(uint32_t micro, far_ptr_16_t usr_ptr)
 }
 
 
+_Packed struct { // 0xF000:E6f5 in IBM PC and 100%-compatible BIOSes
+    uint16_t size;
+    uint8_t model;
+    uint8_t sub_model;
+    uint8_t revision;
+    uint8_t func_inf_1;
+    uint8_t func_inf_2;
+    uint8_t func_inf_3;
+    uint8_t func_inf_4;
+    uint8_t func_inf_5;
+} config_table = {
+    .size = sizeof(config_table),
+    .model = 0xfc,
+    .revision = 1,
+    .func_inf_1 = (1 << 6) /*2nd interrupt controller*/ |
+                  (1 << 5) /* real time clock installed*/ |
+                  (1 << 4) /*calls int 0x15/0x4f on key reciced*/ |
+                  (1 << 2) /*using ebda*/,
+    .func_inf_2 = (1 << 6) /*int 0x16/0x09 supported*/,
+
+};
+
+
 void on_int15(UserRegs __far * context)
 {
     switch (AH(context)) {
@@ -687,11 +710,62 @@ void on_int15(UserRegs __far * context)
         }
         break;
     }
+    case INT15_FUNC_GET_CONFIG:
+        context->es = BIOS16_CODE_SEGMENT;
+        BX(context) = (uint)&config_table;
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    case INT15_FUNC_TARGRT_OPERATING_MODE:
+        if (AX(context) != 0xec00) {
+            goto not_supported;
+        }
+
+        switch(BL(context)) {
+        case 1: // lagacy
+        case 2: // long mode
+        case 3: // mixed mode
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+            break;
+        default:
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        }
+
+        AH(context) = 0;
+        break;
+    case 0xe9:
+        if (AX(context) != 0xe980) { //SpeedStep legacy applet interface
+            goto not_supported;
+        }
+        context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        AH(context) = 0x86;
+        break;
+    case 0x53:
+        switch (AL(context)) {
+        case 0x00://apm
+        case 0x04:// apm
+            break;
+        default:
+            D_MESSAGE("not supported 0x%lx", context->eax);
+        }
+        context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        AH(context) = 0x86;
+        break;
+    case 0: // turn cassette on
+        context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        AH(context) = 0x86;
+        break;
     default:
         D_MESSAGE("not supported 0x%lx", context->eax);
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
     }
+
+    return;
+
+not_supported:
+    D_MESSAGE("not supported 0x%lx", context->eax);
+    context->flags |= (1 << CPU_FLAGS_CF_BIT);
+    AH(context) = 0x86;
 }
 
 
