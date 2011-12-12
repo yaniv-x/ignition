@@ -143,6 +143,7 @@
 #define KBD_CMD_LED 0xed
 #define KBD_CMD_GET_ID 0xf2
 #define KBD_CMD_ENABLE_SCANNING 0xf4
+#define KBD_CMD_REPEAT_RATE 0xf3
 #define KBD_CMD_RESET 0xff
 
 #define KBD_SCAN_L_CTRL 0x1d
@@ -163,6 +164,9 @@
 #define KBD_EXT_RIGHT_META 0x5c
 #define KBD_EXT_RIGHT_MENU 0x5d
 
+#define KBD_DEFAULT_RATE 0x0b /* 10.9 characters per second */
+#define KBD_DEFAULT_DELAY 1 /* 500 ms delay */
+
 #define KBD_BREAK_MASK (1 << 7)
 
 #define KBD_MAX_KEY_SCAN 0x58
@@ -172,6 +176,7 @@
 #define MOUSE_CMD_RESET 0xff
 
 #define KBD_ACK 0xfa
+#define KBD_NAK 0xfe
 #define KBD_SELF_TEST_REPLAY 0xaa
 
 #define POST_CODE_START16   1
@@ -215,6 +220,9 @@
 #define BIOS_FLAGS_KBD_WAIT (1 << 2)
 #define BIOS_FLAGS_HARD_INT (1 << 3)
 #define BIOS_FLAGS_UNREAL (1 << 4)
+#define BIOS_FLAGS_KBD_RATE_TRIGGER (1 << 5)
+#define BIOS_FLAGS_KBD_RATE_CMD_ACK (1 << 6)
+#define BIOS_FLAGS_KBD_RATE_DATA_ACK (1 << 7)
 
 #define BIOS_BEEP_Hz 1760
 #define BIOS_BEEP_DURATION_MS 64
@@ -332,6 +340,11 @@
 #define INT16_FUNC_READ_KEY 0x00
 #define INT16_FUNC_PEEK_KEY 0x01
 #define INT16_FUNC_GET_SHIFT_FLAGS 0x02
+#define INT16_FUNC_RATE_AND_DELAY 0x03
+    #define INT16_RATE_AND_DELAY_RESET 0
+    #define INT16_RATE_AND_DELAY_SET 5
+    #define INT16_RATE_AND_DELAY_GET 6
+#define INT16_FUNC_F3_CAP 0x09
 #define INT16_FUNC_READ_KEY_EXT 0x10
 #define INT16_FUNC_PEEK_KEY_EXT 0x11
 

@@ -1523,6 +1523,30 @@ static void kbd_send_data_sync(uint8_t val)
 }
 
 
+static void kbd_next_cmd()
+{
+    uint8_t bios_flags = ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags));
+    uint16_t flags_2;
+
+    if (!(bios_flags & BIOS_FLAGS_KBD_RATE_TRIGGER)) {
+        return;
+    }
+
+    if ((bda_read_word(BDA_OFFSET_KBD_FLAGS_2) & BDA_KBD_FLAGS_2_LEDS_IN_PROGRESS)) {
+        return;
+    }
+
+    if (bios_flags & (BIOS_FLAGS_KBD_RATE_CMD_ACK | BIOS_FLAGS_KBD_RATE_DATA_ACK)) {
+        return;
+    }
+
+    bios_flags &= ~BIOS_FLAGS_KBD_RATE_TRIGGER;
+    bios_flags |= BIOS_FLAGS_KBD_RATE_CMD_ACK;
+    ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
+    kbd_send_data_sync(KBD_CMD_REPEAT_RATE);
+}
+
+
 static uint8_t kbd_handle_leds(uint8_t scan)
 {
     uint16_t flags_2 = bda_read_word(BDA_OFFSET_KBD_FLAGS_2);
@@ -1553,6 +1577,8 @@ static uint8_t kbd_handle_leds(uint8_t scan)
     }
 
     bda_write_word(BDA_OFFSET_KBD_FLAGS_2, flags_2 & ~BDA_KBD_FLAGS_2_LEDS_IN_PROGRESS);
+    kbd_next_cmd();
+
     return TRUE;
 }
 
@@ -1686,10 +1712,6 @@ static void process_scan(uint8_t scan)
     uint16_t key_val;
     uint8_t is_break;
 
-    if (kbd_handle_leds(scan)) {
-        return;
-    }
-
     if (kbd_process_compound(scan)) {
         return;
     }
@@ -1753,6 +1775,50 @@ static void process_scan(uint8_t scan)
 }
 
 
+static bool_t kbd_handle_rate(uint8_t val)
+{
+    uint8_t bios_flags = ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags));
+
+    if ((bios_flags & BIOS_FLAGS_KBD_RATE_CMD_ACK)) {
+        bios_flags &= ~BIOS_FLAGS_KBD_RATE_CMD_ACK;
+        ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
+
+        if (val == KBD_ACK) {
+            uint8_t repeat = ebda_read_byte(EBDA_OFFSET_KBD_RATE);
+            uint8_t delay = ebda_read_byte(EBDA_OFFSET_KBD_DELAY);
+            bios_flags |= BIOS_FLAGS_KBD_RATE_DATA_ACK;
+            ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
+            kbd_send_data_sync((delay << 5) | repeat);
+            return TRUE;
+        } else if (val == KBD_NAK) {
+            D_MESSAGE("failed");
+        } else {
+            D_MESSAGE("unexpected");
+        }
+        kbd_next_cmd();
+        return TRUE;
+    } else if ((bios_flags & BIOS_FLAGS_KBD_RATE_DATA_ACK)) {
+        bios_flags &= ~BIOS_FLAGS_KBD_RATE_DATA_ACK;
+        ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
+
+        if (val != KBD_ACK) {
+            D_MESSAGE("failed");
+        }
+
+        kbd_next_cmd();
+        return TRUE;
+    } else {
+        return FALSE;
+    }
+}
+
+
+static bool_t kbd_handle_internal(uint8_t val)
+{
+    return kbd_handle_leds(val) || kbd_handle_rate(val);
+}
+
+
 void on_keyboard_interrupt()
 {
     uint8_t val;
@@ -1769,27 +1835,43 @@ void on_keyboard_interrupt()
 
             val = inb(IO_PORT_KBD_DATA);
 
-            __asm {
-                mov ah, INT15_FUNC_KBD_INTERCEPT
-                mov al, val
-                int 0x15
-                jnc no_process
-                mov val, al
-                mov ah, 1
-                jmp done
-            no_process:
-                mov ah, 0
-            done:
-                mov process, ah
-            }
+            if (!kbd_handle_internal(val)) {
+                __asm {
+                    mov ah, INT15_FUNC_KBD_INTERCEPT
+                    mov al, val
+                    int 0x15
+                    jnc no_process
+                    mov val, al
+                    mov ah, 1
+                    jmp done
+                no_process:
+                    mov ah, 0
+                done:
+                    mov process, ah
+                }
 
-            if (process) {
-                process_scan(val);
+                if (process) {
+                    process_scan(val);
+                }
             }
         }
     }
 
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | PIC1_KEYBOARD_PIN);
+}
+
+
+static void kbd_set_repeat(uint8_t repeat, uint8_t delay)
+{
+    uint8_t bios_flags;
+
+    NO_INTERRUPT();
+
+    ebda_write_byte(EBDA_OFFSET_KBD_RATE, repeat);
+    ebda_write_byte(EBDA_OFFSET_KBD_DELAY, delay);
+    bios_flags = ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags));
+    ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags | BIOS_FLAGS_KBD_RATE_TRIGGER);
+    kbd_next_cmd();
 }
 
 
@@ -1868,6 +1950,27 @@ void on_int16(UserRegs __far * context)
     }
     case INT16_FUNC_GET_SHIFT_FLAGS:
         AL(context) = bda_read_byte(BDA_OFFSET_KBD_FLAGS_1);
+        break;
+    case INT16_FUNC_F3_CAP:
+        AL(context) = 0x0d; // subfunc 0 (RESET), 5 (SET), and 6 (GET) are supported
+        break;
+    case INT16_FUNC_RATE_AND_DELAY:
+        switch (AL(context)) {
+        case INT16_RATE_AND_DELAY_RESET:
+            kbd_set_repeat(KBD_DEFAULT_RATE, EBDA_OFFSET_KBD_DELAY);
+            break;
+        case INT16_RATE_AND_DELAY_SET:
+            kbd_set_repeat(BL(context) & 0x1f, BH(context) & 0x3);
+            break;
+        case INT16_RATE_AND_DELAY_GET:
+            BL(context) = ebda_read_byte(EBDA_OFFSET_KBD_RATE);
+            BH(context) = ebda_read_byte(EBDA_OFFSET_KBD_DELAY);
+            break;
+        default:
+            D_MESSAGE("not supported 0x%lx", context->eax);
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            AH(context) = 0x86;
+        }
         break;
     default:
         D_MESSAGE("not supported 0x%lx", context->eax);
@@ -2005,8 +2108,8 @@ static inline void init_keyboard()
     ebda_write_byte(EBDA_OFFSET_KBD_ID, kbd_receive_keyboard_data());
     ebda_write_byte(EBDA_OFFSET_KBD_ID + 1, kbd_receive_keyboard_data());
 
-    ebda_write_byte(EBDA_OFFSET_KBD_RATE, 0x0b);    /* 10.9 characters per second */
-    ebda_write_byte(EBDA_OFFSET_KBD_DELAY, 1);      /* 500 ms delay */
+    ebda_write_byte(EBDA_OFFSET_KBD_RATE, KBD_DEFAULT_RATE);
+    ebda_write_byte(EBDA_OFFSET_KBD_DELAY, KBD_DEFAULT_DELAY);
 
     kbd_send_data(KBD_CMD_ENABLE_SCANNING);
     if (kbd_receive_keyboard_data() != KBD_ACK) {
