@@ -30,9 +30,10 @@
 #include "bios.h"
 #include "error_codes.h"
 
-#define ATA_FLAGS_ATAPI (1 << 0)
-#define ATA_FLAGS_DMA (1 << 1)
-#define ATA_FLAGS_48BIT (1 << 2)
+#define ATA_FLAGS_ATA (1 << 0)
+#define ATA_FLAGS_ATAPI (1 << 1)
+#define ATA_FLAGS_DMA (1 << 2)
+#define ATA_FLAGS_48BIT (1 << 3)
 
 #define ATA_PROGIF_PRIMARY_NOT_FIX (1 << 1)
 #define ATA_PROGIF_SECONDARY_NOT_FIX (1 << 3)
@@ -329,10 +330,6 @@ static bool_t init_common(ATADevice __far * device, uint16_t __far * identity)
         device->flags |= ATA_FLAGS_DMA;
     }
 
-    if ((identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_CONF_NOT_ATA_MASK)) {
-        device->flags |= ATA_FLAGS_ATAPI;
-    }
-
     for (i = 0; i < ATA_DESCRIPTION_MAX; i += 2) {
         device->description[i] = identity[ATA_ID_OFFSET_MODEL + (i >> 1)] >> 8;
         device->description[i + 1] = identity[ATA_ID_OFFSET_MODEL + (i >> 1)];
@@ -375,6 +372,8 @@ static bool_t init_hd_params(ATADevice __far * device, uint16_t __far * identity
         D_MESSAGE("not ATA");
         return FALSE;
     }
+
+    device->flags |= ATA_FLAGS_ATA;
 
     if (!init_common(device, identity)) {
         return FALSE;
@@ -476,6 +475,8 @@ static bool_t init_cdrom_params(ATADevice __far * device, uint16_t __far * ident
         D_MESSAGE("not ATAPI");
         return FALSE;
     }
+
+    device->flags |= ATA_FLAGS_ATAPI;
 
     if (!init_common(device, identity)) {
         return FALSE;
@@ -783,7 +784,7 @@ static bool_t reset_device(ATADevice __far * device)
     }
 
     if ((regs[ATA_IO_STATUS] & ATA_STATUS_ERROR_MASK)) {
-        D_MESSAGE("timeout");
+        D_MESSAGE("error");
         bios_warn(BIOS_WARN_ATA_RESET_FAILED);
         return FALSE;
     }
@@ -993,7 +994,7 @@ void on_int13(UserRegs __far * context)
         uint n;
 
         if (!device || !AL(context)) {
-            D_MESSAGE("bad args");
+            D_MESSAGE("bad args ax 0x%x dl 0x%x", AX(context), DL(context));
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
@@ -1002,7 +1003,7 @@ void on_int13(UserRegs __far * context)
                              DH(context), CL(context) & 0x3f);
 
         if (address == BAD_ADDRESS || address + AL(context) > device->sectors) {
-            D_MESSAGE("bad args");
+            D_MESSAGE("bad address ax 0x%x dl 0x%x", AX(context), DL(context));
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
@@ -1027,7 +1028,7 @@ void on_int13(UserRegs __far * context)
         uint n;
 
         if (!device || !AL(context)) {
-            D_MESSAGE("bad args");
+            D_MESSAGE("bad args ax 0x%x dl 0x%x", AX(context), DL(context));
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
@@ -1036,7 +1037,7 @@ void on_int13(UserRegs __far * context)
                              DH(context), CL(context) & 0x3f);
 
         if (address == BAD_ADDRESS || address + AL(context) > device->sectors) {
-            D_MESSAGE("bad args");
+            D_MESSAGE("bad address ax 0x%x dl 0x%x", AX(context), DL(context));
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
@@ -1058,7 +1059,7 @@ void on_int13(UserRegs __far * context)
         ATADevice __far * device = find_hd(DL(context));
 
         if (!device) {
-            D_MESSAGE("bad args");
+            D_MESSAGE("bad args ax 0x%x dl 0x%x", AX(context), DL(context));
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
@@ -1075,7 +1076,7 @@ void on_int13(UserRegs __far * context)
         ATADevice __far * device;
 
         if (BX(context) != 0x55aa || !(device = find_hd(DL(context)))) {
-            D_MESSAGE("bad args");
+            D_MESSAGE("bad args ax 0x%x dl 0x%x bx 0x%x", AX(context), DL(context), BX(context));
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
@@ -1093,7 +1094,7 @@ void on_int13(UserRegs __far * context)
         uint16_t size = params->size;
 
         if (size < OFFSET_OF(EDDDriveParams, device_param_table) || !device) {
-            D_MESSAGE("bad args");
+            D_MESSAGE("bad args ax 0x%x dl 0x%x size0x%x", AX(context), DL(context), size);
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
@@ -1170,6 +1171,9 @@ void on_int13(UserRegs __far * context)
         }
         break;
     }
+    case 0x4b:// Bootable CD-ROM
+        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+        break;
     default:
         D_MESSAGE("not supported 0x%lx", context->eax);
         int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
@@ -1185,7 +1189,7 @@ bool_t ata_is_cdrom(ATADevice __far * device)
 
 bool_t ata_is_hd(ATADevice __far * device)
 {
-    return !(device->flags & ATA_FLAGS_ATAPI);
+    return !!(device->flags & ATA_FLAGS_ATA);
 }
 
 
