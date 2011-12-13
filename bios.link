@@ -1,5 +1,6 @@
 name bios.bin
 format dos com 
+
 file entry.o
 file bios.o
 file utils_16.o
@@ -8,6 +9,8 @@ file platform_16.o
 file ata.o
 file boot.o
 file keyboard.o
+file asm_utils.o
+
 file lib16/i8d086.o
 file lib16/i8m086.o
 file lib16/u8rs086.o

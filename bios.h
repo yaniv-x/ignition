@@ -83,5 +83,9 @@ void boot_init();
 
 void keyboard_init();
 
+
+void out_words(uint16_t port, void __far * src, uint16_t num_words);
+void in_words(uint16_t port, void __far * dest, uint16_t num_words);
+
 #endif
 

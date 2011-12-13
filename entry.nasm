@@ -30,28 +30,10 @@ group DGROUP _TEXT
 %define BIOS16_STACK_BASE 0xfff0
 
 %include "defs.inc"
-
-%macro PUSH_ALL 0
-    pushf
-    pusha
-    push ds
-    push es
-    push fs
-    push gs
-%endmacro
-
-%macro POP_ALL 0
-    pop gs
-    pop fs
-    pop es
-    pop ds
-    popa
-    popf
-%endmacro
+%include "asm.inc"
 
 
 extern _init
-extern _freeze
 extern _on_hard_interrupt
 extern _set_irq_context
 extern _clear_irq_context
@@ -369,26 +351,4 @@ _call32:
     or eax, CR0_PE
     mov cr0, eax
     jmp dword CODE_SEGMENT_SELECTOR:BIOS32_START_ADDRESS
-
-
-; void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device);
-global _call_rom_init
-_call_rom_init:
-    push bp
-    mov bp, sp
-    mov ah, [bp + 8]
-    mov al, [bp + 10]
-    shl al, 3
-    PUSH_ALL
-    call far [bp + 4]
-    POP_ALL
-    pop bp
-    ret
-
-
-global _far_call_no_return
-_far_call_no_return:
-    mov bp, sp
-    call far [bp]
-    call _freeze
 

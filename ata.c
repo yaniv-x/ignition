@@ -181,8 +181,6 @@ static uint ata_pio_in(uint16_t cmd_port, uint16_t ctrl_port, uint16_t blocks,
     uint i = 0;
 
     for (i = 0; i < blocks; i++) {
-        uint word_count;
-
         for (;;) {
             STI();
             HALT();
@@ -200,11 +198,8 @@ static uint ata_pio_in(uint16_t cmd_port, uint16_t ctrl_port, uint16_t blocks,
             break;
         }
 
-        word_count = ATA_PIO_BLOCK_SIZE / 2;
-
-        while (word_count--) {
-            *dest++ = inw(cmd_port);
-        }
+        in_words(cmd_port, dest, ATA_PIO_BLOCK_SIZE / 2);
+        dest += ATA_PIO_BLOCK_SIZE / 2;
     }
 
     return i;
@@ -218,8 +213,6 @@ static uint ata_pio_out(uint16_t cmd_port, uint16_t ctrl_port, uint16_t blocks,
     int i = 0;
 
     for (;; i++) {
-        uint word_count;
-
         for (;;) {
             STI();
             HALT();
@@ -241,11 +234,8 @@ static uint ata_pio_out(uint16_t cmd_port, uint16_t ctrl_port, uint16_t blocks,
             break;
         }
 
-        word_count = ATA_PIO_BLOCK_SIZE / 2;
-
-        while (word_count--) {
-             outw(cmd_port, *src++);
-        }
+        out_words(cmd_port, src, ATA_PIO_BLOCK_SIZE / 2);
+        src += ATA_PIO_BLOCK_SIZE / 2;
     }
 
     return i;
