@@ -66,7 +66,7 @@ uint8_t is_hard_int_context();
 void register_interrupt_handler(uint line, int_cb_t cb, uint opaque);
 void unregister_interrupt_handler(uint line, int_cb_t cb, uint opaque);
 void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset);
-void therm_printf(const char* format, ...);
+void term_printf(const char* format, ...);
 
 bool_t ata_is_cdrom(ATADevice __far * device);
 bool_t ata_is_hd(ATADevice __far * device);

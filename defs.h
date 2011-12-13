@@ -37,8 +37,8 @@
 #define FALSE 0
 
 #define KB 1024UL
-#define MB (1024 * KB)
-#define GB (1024 * MB)
+#define MB (1024UL * KB)
+#define GB (1024ULL * MB)
 
 #define IO_PORT_PIC1 0x20
 #define IO_PORT_TIMER_0 0x40
@@ -400,10 +400,11 @@
 
 #define EXP_ROM_START_ADDRESS 0xc0000
 #define BIOS32_START_ADDRESS 0xe0000
-#define BIOS32_SIZE (64 * KB)
+#define BIOS32_SIZE (64UL * KB)
 #define BIOS32_STACK_BASE (1024 * 256)
 #define BACK_FROM_PM_START_ADDRESS 0x0002
 #define BIOS16_CODE_SEGMENT 0xf000
+#define BIOS16_SIZE (64UL * KB)
 
 #define MSR_MTRR_CAP 0xfe
 #define MSR_MTRR_PHYS_BASE_0 0x200

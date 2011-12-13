@@ -579,6 +579,128 @@ _Packed struct { // 0xF000:E6f5 in IBM PC and 100%-compatible BIOSes
 };
 
 
+typedef _Packed struct MemMapEnt {
+    uint64_t address;
+    uint64_t size;
+    uint32_t type;
+} MemMapEnt;
+
+
+enum {
+    MEM_TYPE_AVAIABLE = 1,
+    MEM_TYPE_RESERVED,
+    MEM_TYPE_ACPI_RECLAIMABEL,
+    MEM_TYPE_ACPI_NVS,
+};
+
+
+enum {
+    MEM_MAP_INDEX_BASE = 0,
+    MEM_MAP_INDEX_EBDA = 1,
+    MEM_MAP_INDEX_BIOS = 201,
+    MEM_MAP_INDEX_ABOVE_1M = 301,
+    //MEM_MAP_INDEX_IO_APIC,
+    //MEM_MAP_INDEX_LOCAL_APIC,
+    MEM_MAP_INDEX_BELOW_4G = 401,
+    MEM_MAP_INDEX_ABOVE_4G = 501,
+};
+
+
+static bool_t big_mem_get_map(UserRegs __far * context)
+{
+    MemMapEnt __far * ent;
+
+    if (context->edx != 0x534D4150 /*SMAP*/) {
+        return FALSE;
+    }
+
+    context->eax = context->edx;
+
+    if (context->ecx < sizeof(MemMapEnt)) {
+        D_MESSAGE("invalid size");
+        context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        return TRUE;
+    }
+
+    context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+    ent = FAR_POINTER(MemMapEnt, context->es, DI(context));
+
+    switch (context->ebx) {
+    case MEM_MAP_INDEX_BASE:
+        ent->address = 0;
+        ent->size = (uint64_t)(BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB) * KB;
+        ent->type = MEM_TYPE_AVAIABLE;
+        context->ebx = MEM_MAP_INDEX_EBDA;
+        context->ecx = sizeof(MemMapEnt);
+        break;
+    case MEM_MAP_INDEX_EBDA:
+        ent->address = (uint64_t)(BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB) * KB;
+        ent->size = BIOS_EBDA_SIZE_KB * KB;
+        ent->type = MEM_TYPE_RESERVED;
+        context->ebx = MEM_MAP_INDEX_BIOS;
+        context->ecx = sizeof(MemMapEnt);
+        break;
+    case MEM_MAP_INDEX_BIOS:
+        ent->address = BIOS32_START_ADDRESS;
+        ent->size = BIOS32_SIZE + BIOS16_SIZE;
+        ent->type = MEM_TYPE_RESERVED;
+        if (ebda_read_dword(OFFSET_OF_PRIVATE(above_1m_pages))) {
+            context->ebx = MEM_MAP_INDEX_ABOVE_1M;
+        } else {
+            context->ebx = MEM_MAP_INDEX_BELOW_4G;
+        }
+        context->ecx = sizeof(MemMapEnt);
+        break;
+    case MEM_MAP_INDEX_ABOVE_1M: {
+        uint32_t above_1m_pages = ebda_read_dword(OFFSET_OF_PRIVATE(above_1m_pages));
+        if (!above_1m_pages) {
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            return TRUE;
+        }
+        ent->address = 1ULL * MB;
+        ent->size = above_1m_pages * KB * 4;
+        ent->type = MEM_TYPE_AVAIABLE;
+        context->ebx = MEM_MAP_INDEX_BELOW_4G;
+        context->ecx = sizeof(MemMapEnt);
+        break;
+    }
+    case MEM_MAP_INDEX_BELOW_4G: {
+        uint32_t below_4g_pages = ebda_read_dword(OFFSET_OF_PRIVATE(below_4g_pages));
+        ent->address = 4ULL * GB - (below_4g_pages * KB * 4);
+        ent->size = below_4g_pages * KB * 4;
+        ent->type = MEM_TYPE_RESERVED;
+        if (ebda_read_dword(OFFSET_OF_PRIVATE(above_4g_pages))) {
+            context->ebx = MEM_MAP_INDEX_ABOVE_4G;
+        } else {
+            context->ebx = 0;
+        }
+        context->ecx = sizeof(MemMapEnt);
+        break;
+    }
+    case MEM_MAP_INDEX_ABOVE_4G: {
+        uint32_t above_4g_pages = ebda_read_dword(OFFSET_OF_PRIVATE(above_4g_pages));
+
+        if (!above_4g_pages) {
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            return TRUE;
+        }
+
+        ent->address = 4ULL * GB;
+        ent->size = (uint64_t)above_4g_pages * KB * 4;
+        ent->type = MEM_TYPE_AVAIABLE;
+        context->ebx = 0;
+        context->ecx = sizeof(MemMapEnt);
+        break;
+    }
+    default:
+        D_MESSAGE("invalid index");
+        context->flags |= (1 << CPU_FLAGS_CF_BIT);
+    }
+
+    return TRUE;
+}
+
+
 void on_int15(UserRegs __far * context)
 {
     switch (AH(context)) {
@@ -699,7 +821,10 @@ void on_int15(UserRegs __far * context)
             break;
         }
         case INT15_BIG_MEM_GET_MAP:
-            //break;
+            if (!big_mem_get_map(context)) {
+                goto not_supported;
+            }
+            break;
         default:
              D_MESSAGE("not supported 0x%lx", context->eax);
              context->flags |= (1 << CPU_FLAGS_CF_BIT);
@@ -1092,7 +1217,7 @@ static void term_put_char_cb(void __far * opaque, char val)
 }
 
 
-void therm_printf(const char* format, ...)
+void term_printf(const char* format, ...)
 {
     uint8_t __far * args = (uint8_t __far *)&format;
     format_str(term_put_char_cb, NULL, format, SKIP_STACK_ARG(const char __far *, args));

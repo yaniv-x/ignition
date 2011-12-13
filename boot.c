@@ -115,7 +115,7 @@ static void hd_boot()
             freeze();
         }
 
-        therm_printf("boot...");
+        term_printf("boot...");
 
         if (read_word(0, 0x7c00 + 510) == 0xaa55) {
             __asm {
