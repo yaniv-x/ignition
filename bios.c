@@ -854,6 +854,10 @@ void on_int15(UserRegs __far * context)
 
         AH(context) = 0;
         break;
+    case INT15_FUNC_GET_EBDA_SEG:
+        context->es = bda_read_word(BDA_OFFSET_EBDA);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
     case 0xe9:
         if (AX(context) != 0xe980) { //SpeedStep legacy applet interface
             goto not_supported;

@@ -1178,6 +1178,17 @@ void on_int16(UserRegs __far * context)
 
         break;
     }
+    case INT16_FUNC_GET_EXT_SHIFT_FLAGS: {
+        uint16_t flags1 = bda_read_word(BDA_OFFSET_KBD_FLAGS_1);
+        uint16_t flags2 = bda_read_word(BDA_OFFSET_KBD_FLAGS_2);
+        uint8_t ext_info = (flags1 >> 8) & 0x73;
+        ext_info |= (flags2 & 0x0c);
+        ext_info |= (flags1 & 0x0400) >> 3;
+
+        AH(context) = ext_info;
+        AL(context) = bda_read_byte(flags1);
+        break;
+    }
     case INT16_FUNC_GET_SHIFT_FLAGS:
         AL(context) = bda_read_byte(BDA_OFFSET_KBD_FLAGS_1);
         break;
