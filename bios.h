@@ -70,8 +70,11 @@ void term_printf(const char* format, ...);
 
 bool_t ata_is_cdrom(ATADevice __far * device);
 bool_t ata_is_hd(ATADevice __far * device);
-uint ata_read_sectors(ATADevice __far * device, uint64_t address, uint count,
-                      uint8_t __far * dest);
+uint ata_hd_read(ATADevice __far * device, uint64_t address, uint count, uint8_t __far * dest);
+bool_t ata_cdrom_prevent_removal(ATADevice __far * device);
+bool_t ata_cdrom_allow_removal(ATADevice __far * device);
+uint ata_cdrom_read(ATADevice __far * device, uint32_t sector, uint16_t count, void __far * dest);
+bool_t ata_cdrom_start(ATADevice __far * device);
 void ata_init();
 
 

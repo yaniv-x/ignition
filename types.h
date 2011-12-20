@@ -61,7 +61,7 @@ typedef _Packed struct IntHandler {
 
 typedef _Packed struct ATADevice {
     uint8_t flags;
-    uint8_t hd_id;
+    uint8_t id;
     uint16_t cmd_port;
     uint16_t ctrl_port;
     char description[ATA_DESCRIPTION_MAX + 1];
@@ -74,6 +74,15 @@ typedef _Packed struct ATADevice {
     uint8_t pci_bus;
     uint8_t pci_device;
     uint8_t pci_func;
+    union {
+        _Packed struct {
+            uint8_t dumy;
+        } hd;
+
+        _Packed struct {
+            uint8_t packet_size;
+        } cd;
+    } u;
 } ATADevice;
 
 
@@ -94,6 +103,7 @@ typedef _Packed struct EBDAPrivate {
     uint16_t real_hard_int_ss;
     uint16_t real_hard_int_sp;
     uint8_t bios_flags;
+    uint8_t next_cd_id;
 
     uint32_t below_1m_used_pages;
     uint32_t above_1m_pages;

@@ -54,6 +54,7 @@
 #define ATA_STATUS_READY_MASK (1 << 6)
 #define ATA_STATUS_DATA_REQUEST_MASK (1 << 3)
 #define ATA_STATUS_ERROR_MASK (1 << 0)
+#define ATA_STATUS_CHK_MASK ATA_STATUS_ERROR_MASK
 
 #define ATA_DEVICE_LBA_MASK (1 << 6)
 #define ATA_DEVICE_ADDRESS_MASK ((1 << 4) - 1)
@@ -62,6 +63,7 @@
 #define ATA_IO_ERROR 1
 #define ATA_IO_FEATURE ATA_IO_ERROR
 #define ATA_IO_SECTOR_COUNT 2
+#define ATA_IO_REASON ATA_IO_SECTOR_COUNT
 #define ATA_IO_LBA_LOW 3
 #define ATA_IO_SECTOR_POS ATA_IO_LBA_LOW
 #define ATA_IO_LBA_MID 4
@@ -84,6 +86,7 @@
 #define ATA_ID_GENERAL_COMMAND_SET_SHIFT 8
 #define ATA_ID_GENERAL_COMMAND_SET_BITS 5
 #define ATA_ID_GENERAL_COMMAND_SET_CD 0x05
+#define ATA_ID_GENERAL_CONF_PACKET_SIZE_MASM 0x03
 #define ATA_COMPAT_ID_OFFSET_CYL 1
 #define ATA_COMPAT_ID_OFFSET_HEAD 3
 #define ATA_COMPAT_ID_OFFSET_SECTORS 6
@@ -100,14 +103,13 @@
 #define ATA_ID_CMD_SET_2_48BIT_MASK (1 << 10)
 #define ATA_ID_OFFSET_ADDR_SECTORS_48 100
 
-
 #define ATA_CMD_READ_SECTORS 0x20
 #define ATA_CMD_WRITE_SECTORS 0x30
 #define ATA_CMD_READ_SECTORS_EXT 0x24
 #define ATA_CMD_WRITE_SECTORS_EXT 0x34
 #define ATA_CMD_IDENTIFY_DEVICE 0xec
+#define ATA_CMD_PACKET 0xa0
 #define ATA_CMD_IDENTIFY_PACKET_DEVICE 0xa1
-
 
 #define SOFT_REST_TIMEOUT_MS 5000
 #define INVALID_INDEX ~0
@@ -117,6 +119,28 @@
 #define MAX_CYLINDERS 1024
 #define MAX_SECTORS ((uint32_t)MAX_CYLINDERS * MAX_HEADS * SECTORS_PER_TRACK)
 #define HD_SECTOR_SIZE 512
+#define CD_SECTOR_SIZE 2048
+
+#define ATAPI_PACKET_SIZE_MAX 16
+#define ATAPI_PIO_MAX_TRANSFER 0xfffe
+#define ATA_REASON_SENSE_SHIFT 4
+#define ATA_REASON_CD_MASK (1 << 0)
+#define ATA_REASON_IO_MASK (1 << 1)
+#define ATA_REASON_REL_MASK (1 << 2)
+
+#define SCSI_CMD_TEST_UNIT_READY 0x00
+#define SCSI_CMD_REQUEST_SENSE 0x03
+
+#define MMC_CMD_START_STOP 0x1b
+#define MMC_CMD_PREVENT_ALLOW_MEDIUM_REMOVAL 0x1e
+#define MMC_CMD_READ 0x28
+
+#define MMC_PREVENT_UNLOCK 0
+#define MMC_PREVENT_LOCK 1
+#define MMC_PREVENT_PERSISTENT_ALLOW 2
+#define MMC_PREVENT_PERSISTENT_PREVENT 3
+
+#define SCSI_SENSE_UNIT_ATTENTION 0x06
 
 
 #define CURRENT_REG 0
@@ -401,9 +425,14 @@ static bool_t init_hd_params(ATADevice __far * device, uint16_t __far * identity
     init_translat_params(device);
 
     hd_id = bda_read_byte(BDA_OFFSET_HD_ATTACHED);
+
+    if (hd_id > 0x6f) { // 0x7f - 0x70 are reserved for cd/dvd drives
+        return FALSE;
+    }
+
     bda_write_byte(BDA_OFFSET_HD_ATTACHED, hd_id + 1);
 
-    device->hd_id = hd_id | 0x80;
+    device->id = hd_id | 0x80;
 
     if (hd_id == 0) {
         fdpt = FAR_POINTER(FixDiskParamTable, bda_read_word(BDA_OFFSET_EBDA), EBDA_OFFSET_FDPT_0);
@@ -457,8 +486,9 @@ static bool_t add_ata_device(ATADevice __far * device)
 
 static bool_t init_cdrom_params(ATADevice __far * device, uint16_t __far * identity)
 {
-    uint8_t hd_id;
     uint16_t command_set;
+    uint8_t packet_size;
+    uint8_t cd_id;
 
     if ((identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_ATAPI_MASK)
                                                              != ATA_ID_GENERAL_ATAPI) {
@@ -484,6 +514,26 @@ static bool_t init_cdrom_params(ATADevice __far * device, uint16_t __far * ident
         D_MESSAGE("unsupported command set 0x%x", command_set);
         return FALSE;
     }
+
+    packet_size = identity[ATA_ID_OFFSET_GENERAL_CONF] & ATA_ID_GENERAL_CONF_PACKET_SIZE_MASM;
+
+    if (packet_size == 0) {
+        device->u.cd.packet_size = 12;
+    } else if (packet_size == 1) {
+        device->u.cd.packet_size = 16;
+    } else {
+        D_MESSAGE("invalid packet size");
+        return FALSE;
+    }
+
+    cd_id = ebda_read_byte(OFFSET_OF_PRIVATE(next_cd_id));
+
+    if (cd_id > 0x0f) {
+        return FALSE;
+    }
+
+    device->id = 0xf0 | cd_id;
+    ebda_write_byte(OFFSET_OF_PRIVATE(next_cd_id), cd_id + 1);
 
     return TRUE;
 }
@@ -753,8 +803,24 @@ static ATADevice __far * find_hd(uint8_t id)
     uint i;
 
     for (i = 0; i < MAX_ATA_DEVICES; i++, device++) {
-        if (ata_is_hd(device) && device->hd_id == id) {
+        if (ata_is_hd(device) && device->id == id) {
             return device;
+        }
+    }
+
+    return NULL;
+}
+
+
+static ATADevice __far * find_device(uint8_t id)
+{
+    uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
+    ATADevice __far * device = FAR_POINTER(ATADevice, seg, OFFSET_OF_PRIVATE(ata_devices));
+    uint i;
+
+    for (i = 0; i < MAX_ATA_DEVICES; i++, device++) {
+        if (device->id == id) {
+            return id ? device : NULL;
         }
     }
 
@@ -811,8 +877,8 @@ static bool_t reset_device(ATADevice __far * device)
 }
 
 
-static uint ata_write_sectors(ATADevice __far * device, uint64_t address, uint count,
-                              uint8_t __far * src)
+static uint ata_hd_write(ATADevice __far * device, uint64_t address, uint count,
+                         uint8_t __far * src)
 {
     ASSERT(count > 0 && count <= 256);
     ASSERT(address + count > address && address + count <= device->sectors);
@@ -850,6 +916,248 @@ static uint ata_write_sectors(ATADevice __far * device, uint64_t address, uint c
         cmd.command = ATA_CMD_WRITE_SECTORS_EXT;
 
         return ata_pio_cmd_ext(device->cmd_port, device->ctrl_port, &cmd, ata_pio_out);
+    }
+}
+
+
+static bool_t transmit_packet_command(ATADevice __far * device, void __far * command_data,
+                                      uint16_t max_transfer)
+{
+    uint8_t status;
+    uint8_t reason;
+    uint i;
+
+    wait_ready(device->ctrl_port);
+
+    for (i = ATA_IO_FEATURE; i < ATA_IO_LBA_MID; i++) {
+        outb(device->cmd_port + i, 0);
+    }
+
+    outb(device->cmd_port + ATA_IO_LBA_MID, max_transfer);
+    outb(device->cmd_port + ATA_IO_LBA_HIGH, max_transfer >> 8);
+    outb(device->cmd_port + ATA_IO_DEVICE, 0);
+    outb(device->cmd_port + ATA_IO_COMMAND, ATA_CMD_PACKET);
+
+    while (((status = inb(device->ctrl_port)) & ATA_STATUS_BUSY_MASK)); //todo: timout
+
+    if ((status & ATA_STATUS_CHK_MASK) || !(status & ATA_STATUS_DATA_REQUEST_MASK)) {
+        D_MESSAGE("failed on status 0x%x", status);
+        return FALSE;
+    }
+
+    reason = inb(device->cmd_port + ATA_IO_REASON);
+
+    if ((reason & (ATA_REASON_REL_MASK | ATA_REASON_IO_MASK)) || !(reason & ATA_REASON_CD_MASK)) {
+        D_MESSAGE("failed on reason 0x%x", reason);
+        return FALSE;
+    }
+
+    out_words(device->cmd_port, command_data, device->u.cd.packet_size / 2);
+
+    for (;;) {
+        STI();
+        HALT();
+        CLI();
+
+        if (!is_busy(device->ctrl_port)) {
+            break;
+        }
+    }
+
+    return TRUE;
+}
+
+
+static void request_sense(ATADevice __far * device)
+{
+    uint8_t command_data[ATAPI_PACKET_SIZE_MAX];
+
+    mem_reset(command_data, sizeof(command_data));
+    command_data[0] = SCSI_CMD_REQUEST_SENSE;
+
+    if (!transmit_packet_command(device, command_data, 0) ||
+                                               (inb(device->ctrl_port) & ATA_STATUS_CHK_MASK)) {
+        D_MESSAGE("failed");
+    }
+}
+
+
+static bool_t send_packet_command(ATADevice __far * device, void __far * command_data,
+                                  uint16_t max_transfer)
+{
+    for (;;) {
+        if (!transmit_packet_command(device, command_data, max_transfer)) {
+            return FALSE;
+        }
+
+        if ((inb(device->ctrl_port) & ATA_STATUS_CHK_MASK)) {
+            uint8_t err = inb(device->cmd_port + ATA_IO_ERROR);
+
+            if ((err >> ATA_REASON_SENSE_SHIFT) == SCSI_SENSE_UNIT_ATTENTION) {
+                request_sense(device);
+                continue;
+            }
+        }
+
+        break;
+    }
+
+    return TRUE;
+}
+
+
+bool_t ata_cdrtom_test_ready(ATADevice __far * device)
+{
+    uint8_t command_data[ATAPI_PACKET_SIZE_MAX];
+
+    mem_reset(command_data, sizeof(command_data));
+    command_data[0] = SCSI_CMD_TEST_UNIT_READY;
+
+    if (!send_packet_command(device, command_data, 0)) {
+        return FALSE;
+    }
+
+    return !(inb(device->ctrl_port) & ATA_STATUS_CHK_MASK);
+}
+
+
+bool_t ata_cdrom_prevent_removal(ATADevice __far * device)
+{
+    uint8_t command_data[ATAPI_PACKET_SIZE_MAX];
+
+    mem_reset(command_data, sizeof(command_data));
+    command_data[0] = MMC_CMD_PREVENT_ALLOW_MEDIUM_REMOVAL;
+    command_data[4] = MMC_PREVENT_PERSISTENT_PREVENT;
+
+    if (!send_packet_command(device, command_data, 0)) {
+        return FALSE;
+    }
+
+    return !(inb(device->ctrl_port) & ATA_STATUS_CHK_MASK);
+}
+
+
+bool_t ata_cdrom_allow_removal(ATADevice __far * device)
+{
+    uint8_t command_data[ATAPI_PACKET_SIZE_MAX];
+
+    mem_reset(command_data, sizeof(command_data));
+    command_data[0] = MMC_CMD_PREVENT_ALLOW_MEDIUM_REMOVAL;
+    command_data[4] = MMC_PREVENT_PERSISTENT_ALLOW;
+
+    if (!send_packet_command(device, command_data, 0)) {
+        return FALSE;
+    }
+
+    return !(inb(device->ctrl_port) & ATA_STATUS_CHK_MASK);
+}
+
+
+bool_t ata_cdrom_start(ATADevice __far * device)
+{
+    uint8_t command_data[ATAPI_PACKET_SIZE_MAX];
+
+    mem_reset(command_data, sizeof(command_data));
+    command_data[0] = MMC_CMD_START_STOP;
+    command_data[4] = 0x3; // load and start and make it ready
+
+    if (!send_packet_command(device, command_data, 0)) {
+        return FALSE;
+    }
+
+    return !(inb(device->ctrl_port) & ATA_STATUS_CHK_MASK);
+}
+
+
+static uint16_t ata_recive(ATADevice __far * device, uint16_t count, uint8_t __far * dest)
+{
+    uint32_t n = (uint32_t)count * CD_SECTOR_SIZE;
+    uint16_t trans_size;
+    uint8_t status;
+    uint8_t reason;
+
+    do {
+        status = inb(device->ctrl_port);
+
+        if ((status & ATA_STATUS_CHK_MASK) || !(status & ATA_STATUS_DATA_REQUEST_MASK)) {
+            D_MESSAGE("failed on status 0x%x", status);
+            return ((uint32_t)count * CD_SECTOR_SIZE - n) / CD_SECTOR_SIZE;
+        }
+
+        reason = inb(device->cmd_port + ATA_IO_REASON);
+
+        if ((reason & (ATA_REASON_CD_MASK | ATA_REASON_REL_MASK)) ||
+                                                                 !(reason & ATA_REASON_IO_MASK)) {
+            D_MESSAGE("failed on reason 0x%x", reason);
+            return ((uint32_t)count * CD_SECTOR_SIZE - n) / CD_SECTOR_SIZE;
+        }
+
+        trans_size = inb(device->cmd_port + ATA_IO_LBA_HIGH);
+        trans_size = (trans_size << 8) | inb(device->cmd_port + ATA_IO_LBA_MID);
+
+        if (!trans_size || (trans_size & 1) || trans_size > ATAPI_PIO_MAX_TRANSFER ||
+                                                                                 trans_size > n) {
+            D_MESSAGE("failed on size 0x%x n 0x%lx", reason, n);
+            return ((uint32_t)count * CD_SECTOR_SIZE - n) / CD_SECTOR_SIZE;
+        }
+
+        in_words(device->cmd_port, dest, trans_size / 2);
+        n -= trans_size;
+        dest += trans_size;
+
+        for (;;) {
+            STI();
+            HALT();
+            CLI();
+
+            if (!is_busy(device->ctrl_port)) {
+                break;
+            }
+        }
+
+    } while (n);
+
+    return count;
+}
+
+
+uint ata_cdrom_read(ATADevice __far * device, uint32_t sector, uint16_t count, void __far * dest)
+{
+    uint8_t command_data[ATAPI_PACKET_SIZE_MAX];
+    uint8_t status;
+
+    if (count == 0) {
+        return 0;
+    }
+
+    mem_reset(command_data, sizeof(command_data));
+    command_data[0] = MMC_CMD_READ;
+    command_data[2] = sector >> 24;
+    command_data[3] = sector >> 16;
+    command_data[4] = sector >> 8;
+    command_data[5] = sector;
+    command_data[7] = count >> 8;
+    command_data[8] = count;
+
+    if (!send_packet_command(device, command_data, 0xfffe)) {
+        return 0;
+    }
+
+    if ((inb(device->ctrl_port) & ATA_STATUS_CHK_MASK)) {
+        return 0;
+    }
+
+    return ata_recive(device, count, dest);
+}
+
+
+uint ata_read(ATADevice __far * device, uint64_t address, uint count,
+              uint8_t __far * dest)
+{
+    if (ata_is_hd(device)) {
+        return ata_hd_read(device, address, count, dest);
+    } else {
+        return ata_cdrom_read(device, address, count, dest);
     }
 }
 
@@ -907,6 +1215,22 @@ typedef _Packed struct EDDDriveParams {
 } EDDDriveParams;
 
 
+typedef _Packed struct CDBootSpecPacket {
+    uint8_t size;
+    uint8_t media_type;
+    uint8_t drive_id;
+    uint8_t controller_id;
+    uint32_t disk_image_lba;
+    uint16_t device_specification;
+    uint16_t user_buf_seg;
+    uint16_t load_seg;
+    uint16_t load_count;
+    uint8_t int13_f8_ch;
+    uint8_t int13_f8_cl;
+    uint8_t int13_f8_dh;
+} CDBootSpecPacket;
+
+
 static void int13_error(UserRegs __far * context, uint8_t err)
 {
     AH(context) = err;
@@ -938,15 +1262,20 @@ void on_int13(UserRegs __far * context)
         uint8_t __far * dest;
         int n;
 
-        if (packet->packet_size < 16 || !(device = find_hd(DL(context)))) {
-            D_MESSAGE("bad packet");
+        if (!(device = find_device(DL(context)))) {
+            D_MESSAGE("no device 0x%x", DL(context));
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
 
-        if (packet->count > 0x7f || packet->block_address >= device->sectors ||
-                                          packet->block_address + packet->count > device->sectors) {
-            D_MESSAGE("bad packet 2");
+        if (packet->packet_size < 16 ) {
+            D_MESSAGE("bad packet size");
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        if (packet->count > 0x7f) {
+            D_MESSAGE("bad count");
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
@@ -965,7 +1294,7 @@ void on_int13(UserRegs __far * context)
                                packet->flat_buf_address & 0x0f);
         }
 
-        n = ata_read_sectors(device, packet->block_address, packet->count, dest);
+        n = ata_read(device, packet->block_address, packet->count, dest);
 
         if (n != packet->count) {
             D_MESSAGE("read failed");
@@ -999,7 +1328,7 @@ void on_int13(UserRegs __far * context)
         }
 
         src = FAR_POINTER(uint8_t, context->es, BX(context));
-        n = ata_read_sectors(device, address, AL(context), src);
+        n = ata_hd_read(device, address, AL(context), src);
 
         if (n != AL(context)) {
             D_MESSAGE("read failed");
@@ -1033,7 +1362,7 @@ void on_int13(UserRegs __far * context)
         }
 
         dest = FAR_POINTER(uint8_t, context->es, BX(context));
-        n = ata_write_sectors(device, address, AL(context), dest);
+        n = ata_hd_write(device, address, AL(context), dest);
 
         if (n != AL(context)) {
             D_MESSAGE("write failed");
@@ -1084,7 +1413,7 @@ void on_int13(UserRegs __far * context)
         uint16_t size = params->size;
 
         if (size < OFFSET_OF(EDDDriveParams, device_param_table) || !device) {
-            D_MESSAGE("bad args ax 0x%x dl 0x%x size0x%x", AX(context), DL(context), size);
+            D_MESSAGE("bad args ax 0x%x dl 0x%x size 0x%x", AX(context), DL(context), size);
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         }
@@ -1161,9 +1490,38 @@ void on_int13(UserRegs __far * context)
         }
         break;
     }
-    case 0x4b:// Bootable CD-ROM
-        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+    case INT13_FUNC_TERM_DISK_EMULATION: {
+        CDBootSpecPacket __far * spec;
+
+        if (DL(context) == 0x7f) {
+            D_MESSAGE("INT13_FUNC_TERM_DISK_EMULATION: all");
+            int13_success(context);
+            return;
+        }
+
+        if (DL(context) < 0xf0 || !find_device(DL(context))) {
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            return;
+        }
+
+        spec = FAR_POINTER(CDBootSpecPacket, context->ds, SI(context));
+
+        switch (AL(context)) {
+        case INT13_TERM_DISK_EMULATION_TERM:
+            D_MESSAGE("INT13_FUNC_TERM_DISK_EMULATION: stop");
+        case INT13_TERM_DISK_EMULATION_QUERY:
+            D_MESSAGE("INT13_FUNC_TERM_DISK_EMULATION: query");
+            mem_reset(spec, sizeof(*spec));
+            spec->size = sizeof(*spec);
+            spec->media_type = 0;
+            spec->drive_id = DL(context);
+            int13_success(context);
+            break;
+        default:
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+        }
         break;
+    }
     default:
         D_MESSAGE("not supported 0x%lx", context->eax);
         int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
@@ -1183,8 +1541,8 @@ bool_t ata_is_hd(ATADevice __far * device)
 }
 
 
-uint ata_read_sectors(ATADevice __far * device, uint64_t address, uint count,
-                      uint8_t __far * dest)
+uint ata_hd_read(ATADevice __far * device, uint64_t address, uint count,
+                 uint8_t __far * dest)
 {
     ASSERT(count > 0 && count <= 256);
     ASSERT(address + count > address && address + count <= device->sectors);
