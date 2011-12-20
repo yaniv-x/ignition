@@ -130,8 +130,11 @@ void mem_reset(void __far * ptr, uint size);
 uint32_t string_length(const char __far *  str);
 void string_copy(char __far *  dest, const char __far *  src);
 void string_copy_n(char __far *  dest, const char __far *  src, uint dest_size);
+int string_cmp(const char __far *  s1, const char __far *  s2);
+int string_cmp_n(const char __far *  s1, const char __far *  s2, uint size);
 
 int8_t checksum8(void __far * start, uint size);
+int16_t checksum16(void __far * start, uint words);
 
 void bios_error(uint16_t code);
 void bios_warn(uint16_t code);

@@ -240,11 +240,45 @@ void string_copy_n(char __far *  dest, const char __far *  src, uint dest_size)
 }
 
 
+int string_cmp(const char __far *  s1, const char __far *  s2)
+{
+    uint i;
+
+    for (i = 0; s1[i] && s1[i] == s2[i]; i++ ) ;
+
+    return s1[i] - s2[i];
+}
+
+
+int string_cmp_n(const char __far *  s1, const char __far *  s2, uint n)
+{
+    uint i;
+
+    for (i = 0; n && s1[i] && s1[i] == s2[i]; i++, n--) ;
+
+    return n ? s1[i] - s2[i] : 0;
+}
+
+
 int8_t checksum8(void __far * start, uint size)
 {
-    uint8_t res = 0;
-    uint8_t *now = (uint8_t*)start;
-    uint8_t *end = now + size;
+    int8_t res = 0;
+    uint8_t __far * now = (uint8_t __far *)start;
+    uint8_t __far * end = now + size;
+
+    for (; now < end; now++) {
+        res += *now;
+    }
+
+    return -res;
+}
+
+
+int16_t checksum16(void __far * start, uint size)
+{
+    int16_t res = 0;
+    uint16_t __far * now = (uint16_t __far *)start;
+    uint16_t __far * end = now + size;
 
     for (; now < end; now++) {
         res += *now;
