@@ -137,7 +137,7 @@ static void write_all(int fd, off_t to, void* in_src, uint size)
         ssize_t n = write(fd, src, size);
         if (n == -1) {
              if (errno != EINTR) {
-                 ERROR("read failed");
+                 ERROR("write failed");
              }
              continue;
         }

@@ -431,6 +431,7 @@ static bool_t init_hd_params(ATADevice __far * device, uint16_t __far * identity
     }
 
     bda_write_byte(BDA_OFFSET_HD_ATTACHED, hd_id + 1);
+    // BDA_OFFSET_HD_CONTROL_BYTE ?
 
     device->id = hd_id | 0x80;
 

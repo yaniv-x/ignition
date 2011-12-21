@@ -28,6 +28,7 @@
 #define _H_PLATFORM
 
 #include "types.h"
+#include "nox.h"
 
 #define BIOS_PRIVATE_READ(member, ptr)                                          \
     platform_read(PLATFORM_BIOS_DATA_START + OFFSET_OF(PrivateData, member),    \

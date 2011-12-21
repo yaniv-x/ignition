@@ -100,11 +100,15 @@ void platform_debug_string(const char __far * str)
 
 void platform_command(uint8_t cmd, void __far * args, uint32_t args_size)
 {
-    NO_INTERRUPT();
+    uint32_t eflags = get_eflags();
+    CLI();
+
     ASSERT(args_size <= PLATFORM_CMD_BUF_SIZE);
 
     platform_write(PLATFORM_CMD_BUF_START, args, args_size);
     outb(get_port() + PLATFORM_IO_CMD, cmd);
+
+    put_eflags(eflags);
 }
 
 
