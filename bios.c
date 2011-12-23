@@ -459,7 +459,7 @@ void on_pit_interrupt()
 
     counter = (uint32_t*)BDA_OFFSET_TICKS;
 
-    if (++*counter == 0x18038aUL) { //24 hours
+    if (++*counter == BISO_SYS_TIME_ROLLOVER) {
         *counter = 0;
         *(uint8_t*)BDA_OFFSET_TICKS_ROLLOVER = 1;
     }
@@ -910,14 +910,22 @@ void on_int12(UserRegs __far * context)
 void on_int1a(UserRegs __far * context)
 {
     switch (AH(context)) {
-    case INT1A_FUNC_GET_SYSTEM_TIME: {
+    case INT1A_FUNC_GET_SYS_TIME: {
         uint32_t ticks = bda_read_dword(BDA_OFFSET_TICKS);
 
         DX(context) = ticks;
         CX(context) = ticks >> 16;
         AL(context) = bda_read_byte(BDA_OFFSET_TICKS_ROLLOVER);
         bda_write_byte(BDA_OFFSET_TICKS_ROLLOVER, 0);
-        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    }
+    case INT1A_FUNC_SET_SYS_TIME: {
+        uint32_t ticks = ((uint32_t)CX(context) << 16) | DX(context);
+
+        ticks %= BISO_SYS_TIME_ROLLOVER;
+
+        bda_write_dword(BDA_OFFSET_TICKS, ticks);
+        bda_write_byte(BDA_OFFSET_TICKS_ROLLOVER, 0);
         break;
     }
     case INT1A_FUNC_GET_TIME:
@@ -932,6 +940,49 @@ void on_int1a(UserRegs __far * context)
         DL(context) = rtc_read(RTC_REGB) & 1;
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
+    case INT1A_FUNC_SET_TIME: {
+        uint8_t regb = rtc_read(RTC_REGB);
+
+        regb &= ~(RTC_REG_B_DAYLIGHT_MASK | RTC_REG_B_BINARY_MASK);
+        regb |= (DL(context) ? RTC_REG_B_DAYLIGHT_MASK : 0) | RTC_REG_B_HALT_CLOCK_MASK |
+                                                              RTC_REG_B_24_HOUR_MASK;
+        rtc_write(RTC_REGB, regb);
+        rtc_write(RTC_HOURS, CH(context));
+        rtc_write(RTC_MINUTES, CL(context));
+        rtc_write(RTC_SECONDS, DH(context));
+        rtc_write(RTC_REGB, regb & ~RTC_REG_B_HALT_CLOCK_MASK);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    }
+    case INT1A_FUNC_GET_DATE:
+        if ((rtc_read(0x0a) & RTC_REG_A_UPDATE_IN_PROGRESS)) {
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            break;
+        }
+
+        CH(context) = rtc_read(RTC_CENTURY);
+        CL(context) = rtc_read(RTC_YEAR);
+        DH(context) = rtc_read(RTC_MOUNTH);
+        DL(context) = rtc_read(RTC_DAY_OF_MOUNTH);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    case INT1A_FUNC_SET_DATE: {
+        uint8_t regb = rtc_read(RTC_REGB);
+
+        regb &= ~RTC_REG_B_BINARY_MASK;
+        regb |= RTC_REG_B_HALT_CLOCK_MASK | RTC_REG_B_24_HOUR_MASK;
+
+        rtc_write(RTC_REGB, regb);
+
+        rtc_write(RTC_CENTURY, CH(context));
+        rtc_write(RTC_YEAR, CL(context));
+        rtc_write(RTC_MOUNTH, DH(context));
+        rtc_write(RTC_DAY_OF_MOUNTH, DL(context));
+
+        rtc_write(RTC_REGB, regb & ~RTC_REG_B_HALT_CLOCK_MASK);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    }
     case INT1A_FUNC_SET_ALARM: {
         uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
                                        OFFSET_OF(EBDAPrivate, bios_flags));
