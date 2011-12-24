@@ -1248,13 +1248,71 @@ static void int13_success(UserRegs __far * context)
 }
 
 
+static void edd_write_sectors(UserRegs __far * context)
+{
+    EDDPacket __far * packet = FAR_POINTER(EDDPacket, context->ds, SI(context));
+    ATADevice __far * device;
+    uint8_t __far * src;
+    int n;
+
+    if (!(device = find_hd(DL(context)))) {
+        D_MESSAGE("no device 0x%x", DL(context));
+        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+        return;
+    }
+
+    if (packet->packet_size < 16 ) {
+        D_MESSAGE("bad packet size");
+        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+        return;
+    }
+
+    if (packet->count > 0x7f) {
+        D_MESSAGE("bad count");
+        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+        return;
+    }
+
+    if (packet->buf_address != ~0UL) {
+        src = (uint8_t __far *)packet->buf_address;
+    } else {
+        if (packet->packet_size < sizeof(*packet)) {
+            D_MESSAGE("bad packet");
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            return;
+        }
+
+        D_MESSAGE("flat");
+        src = FAR_POINTER(uint8_t, packet->flat_buf_address >> 4,
+                          packet->flat_buf_address & 0x0f);
+    }
+
+    n = ata_hd_write(device, packet->block_address, packet->count, src);
+
+    if (n != packet->count) {
+        D_MESSAGE("read failed");
+        packet->count = n;
+        int13_error(context, HD_ERR_READ_FAILED);
+        return;
+    }
+
+    int13_success(context);
+    return;
+}
+
+
 void on_int13(UserRegs __far * context)
 {
+    // need to investigate crash while the following is in the switch statement
+    if (AH(context) == INT13_FUNC_EDD_WRITE_SECTORS) {
+        edd_write_sectors(context);
+        return;
+    }
+
     switch (AH(context)) {
-    case INT13_FUNC_EDD_WRITE_SECTORS:
     case INT13_FUNC_EDD_SEEK:
     case INT13_FUNC_EDD_VERIFY:
-        D_MESSAGE("implement me x%x", AH(context));
+        D_MESSAGE("implement me 0x%x", AH(context));
         freeze();
         break;
     case INT13_FUNC_EDD_READ_SECTORS: {
