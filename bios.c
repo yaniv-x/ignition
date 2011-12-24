@@ -946,7 +946,7 @@ void on_int11(UserRegs __far * context)
 
 void on_int12(UserRegs __far * context)
 {
-    AX(context) = BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB;
+    AX(context) = bda_read_word(BDA_OFFSET_MAIN_MEM_SIZE);
 }
 
 
