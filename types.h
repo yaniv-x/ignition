@@ -96,6 +96,7 @@ typedef _Packed struct BootOption {
 
 
 typedef _Packed struct EBDAPrivate {
+    uint32_t pmode_stack_base;
     uint16_t real_mode_ss;
     uint16_t real_mode_sp;
     uint16_t real_user_ss;
@@ -124,6 +125,10 @@ typedef _Packed struct EBDAPrivate {
 
     uint8_t call_select;
     uint8_t call_ret_val;
+
+    uint32_t ext_copy_words;
+    uint32_t ext_copy_src;
+    uint32_t ext_copy_dest;
 
     uint32_t alloc_start;
     uint32_t alloc_pos;

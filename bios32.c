@@ -763,10 +763,17 @@ static void init_irq_routing()
 }
 
 
-static void enable_a20()
+static uint8_t enable_a20()
 {
     uint8_t val = inb(IO_PORT_SYSCTRL);
     outb(IO_PORT_SYSCTRL, val | (1 << SYSCTRL_A20_BIT));
+    return val;
+}
+
+
+static void restore_a20(uint8_t val)
+{
+    outb(IO_PORT_SYSCTRL, val);
 }
 
 
@@ -1233,6 +1240,19 @@ static void load_vga()
 }
 
 
+static void copy_ext_mem()
+{
+   uint32_t size = (uint32_t)globals->ext_copy_words * 2;
+   void* dest = (void*)globals->ext_copy_dest;
+   void* src = (void*)globals->ext_copy_src;
+   uint8_t a20_state = enable_a20();
+
+   mem_copy(dest, src, size);
+   restore_a20(a20_state);
+   get_ebda_private()->call_ret_val = TRUE;
+}
+
+
 static void init()
 {
     post(POST_CODE_INIT32);
@@ -1251,6 +1271,7 @@ static void init()
 
     ASSERT(sizeof(EBDA) <= BIOS_EBDA_DATA_KB * KB);
     ASSERT(*(uint16_t*)(bda + BDA_OFFSET_EBDA) == (BIOS_EBDA_ADDRESS >> 4));
+    ASSERT(OFFSET_OF(EBDAPrivate, pmode_stack_base) == PRIVATE_OFFSET_PM_STACK_BASE);
     ASSERT(OFFSET_OF(EBDAPrivate, real_mode_ss) == PRIVATE_OFFSET_REAL_MODE_SS);
     ASSERT(OFFSET_OF(EBDAPrivate, real_mode_sp) == PRIVATE_OFFSET_REAL_MODE_SP);
     ASSERT(OFFSET_OF(EBDAPrivate, real_user_ss) == PRIVATE_OFFSET_USER_SS);
@@ -1284,6 +1305,9 @@ void entry()
         break;
     case CALL_SELECT_NOP:
         get_ebda_private()->call_ret_val = TRUE;
+        break;
+    case CALL_SELECT_COPY_MEM:
+        copy_ext_mem();
         break;
     default:
         bios_error(BIOS_ERROR_UNEXPECTED_IP);

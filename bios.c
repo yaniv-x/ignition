@@ -225,6 +225,13 @@ uint16_t ebda_read_word(uint16_t offset)
 }
 
 
+static void ebda_write_word(uint16_t offset, uint16_t val)
+{
+    uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
+    write_word(seg, offset, val);
+}
+
+
 static uint32_t ebda_read_dword(uint16_t offset)
 {
     uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
@@ -701,6 +708,18 @@ static bool_t big_mem_get_map(UserRegs __far * context)
 }
 
 
+static uint32_t descriptor_to_address(uint8_t __far * descriptor)
+{
+    uint32_t address;
+
+    address = descriptor[2] | ((uint32_t)descriptor[3] << 8);
+    address |= ((uint32_t)descriptor[4] << 16);
+    address |= ((uint32_t)descriptor[7] << 24);
+
+    return address;
+}
+
+
 void on_int15(UserRegs __far * context)
 {
     switch (AH(context)) {
@@ -858,6 +877,30 @@ void on_int15(UserRegs __far * context)
         context->es = bda_read_word(BDA_OFFSET_EBDA);
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
+    case INT15_FUNC_COPY_EXT_MEM: {
+        uint32_t address;
+        uint32_t pmod_stack;
+
+        NO_INTERRUPT();
+
+        ebda_write_word(OFFSET_OF_PRIVATE(ext_copy_words), CX(context));
+        address = descriptor_to_address(FAR_POINTER(uint8_t, context->es, SI(context) + 0x10));
+        ebda_write_dword(OFFSET_OF_PRIVATE(ext_copy_src), address);
+        address = descriptor_to_address(FAR_POINTER(uint8_t, context->es, SI(context) + 0x18));
+        ebda_write_dword(OFFSET_OF_PRIVATE(ext_copy_dest), address);
+
+        // interrupt are disabled during 32bit call => hard int stack can be used
+        pmod_stack = (uint32_t)ebda_read_word(OFFSET_OF_PRIVATE(real_hard_int_ss)) << 4;
+        pmod_stack |= ebda_read_word(OFFSET_OF_PRIVATE(real_hard_int_sp));
+
+        ebda_write_dword(OFFSET_OF_PRIVATE(pmode_stack_base), pmod_stack);
+        ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_COPY_MEM);
+        call32();
+
+        AH(context) = 0;
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    }
     case 0xe9:
         if (AX(context) != 0xe980) { //SpeedStep legacy applet interface
             goto not_supported;
@@ -1286,6 +1329,7 @@ void init()
     post(POST_CODE_INIT16);
     init_bios_data_area();
 
+    ebda_write_dword(OFFSET_OF_PRIVATE(pmode_stack_base), BIOS32_STAGE1_STACK_BASE);
     ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_INIT);
     call32();
 

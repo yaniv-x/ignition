@@ -45,7 +45,11 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov esp, BIOS32_STACK_BASE
+    xor eax, eax
+    mov ax, [(BDA_SEG << 4) + BDA_OFFSET_EBDA]
+    shl eax, 4
+    add eax, EBDA_PRIVATE_START + PRIVATE_OFFSET_PM_STACK_BASE
+    mov esp, [eax]
 
     call _entry
 
