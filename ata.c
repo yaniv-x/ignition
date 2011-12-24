@@ -1378,6 +1378,16 @@ void on_int13(UserRegs __far * context)
     case INT13_FUNC_GET_DRIVE_PARAMETERS: {
         ATADevice __far * device = find_hd(DL(context));
 
+        if (DL(context) <= 1) {
+            AX(context) = 0;
+            BX(context) = 0;
+            CX(context) = 0;
+            DH(context) = 0;
+            context->es = 0;
+            int13_success(context);
+            break;
+        }
+
         if (!device) {
             D_MESSAGE("bad args ax 0x%x dl 0x%x", AX(context), DL(context));
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
