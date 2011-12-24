@@ -260,7 +260,7 @@ static uint16_t kbd_ext_to_nonext_key(uint16_t key)
 }
 
 
-static void kbd_push_key(uint16_t key_val)
+static bool_t _kbd_push_key(uint16_t key_val)
 {
     uint16_t buf_start = bda_read_word(BDA_OFFSET_KBD_BUF_START);
     uint16_t buf_size = bda_read_word(BDA_OFFSET_KBD_BUF_END) - buf_start;
@@ -274,12 +274,22 @@ static void kbd_push_key(uint16_t key_val)
     }
 
     if (next == head){
-        beep();
-        return;
+        return FALSE;
     }
 
     bda_write_word(buf_start + tail, key_val);
     bda_write_word(BDA_OFFSET_KBD_TAIL, buf_start + next);
+
+    return TRUE;
+}
+
+
+static void kbd_push_key(uint16_t key_val)
+{
+    if (!_kbd_push_key(key_val)){
+        beep();
+        return;
+    }
 
     if (ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags) &
                                                     BIOS_FLAGS_KBD_WAIT)) {
@@ -290,6 +300,12 @@ static void kbd_push_key(uint16_t key_val)
             int 0x15
         }
     }
+}
+
+
+static inline bool_t kbd_push_user_key(uint16_t key_val)
+{
+    return _kbd_push_key(key_val);
 }
 
 
@@ -1213,6 +1229,14 @@ void on_int16(UserRegs __far * context)
             AH(context) = 0x86;
         }
         break;
+    case INT16_FUNC_STOR_KEY: {
+        if (kbd_push_user_key(CX(context))) {
+            AL(context) = 0;
+        } else {
+            AL(context) = 1;
+        }
+        break;
+    }
     default:
         D_MESSAGE("not supported 0x%lx", context->eax);
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
