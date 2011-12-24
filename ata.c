@@ -1474,11 +1474,11 @@ void on_int13(UserRegs __far * context)
                                                            // diagnostic. hazard ?
 
             sectors = sectors * device->logi_heads * SECTORS_PER_TRACK;
-            AL(context) = 0x03;
+            AH(context) = 0x03;
             CX(context) = sectors >> 16;
             DX(context) = sectors;
-
-            int13_success(context);
+            bda_write_byte(BDA_OFFSET_HD_RESAULT, HD_ERR_SUCCESS);
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         }
 
         break;
