@@ -1268,7 +1268,8 @@ static void int_exp_rom()
 
         load_address = ebda_read_dword(OFFSET_OF_PRIVATE(rom_load_address));
         load_address -= (size_before - size_after) * PCI_ROM_GRANULARITY;
-        ebda_write_dword(OFFSET_OF_PRIVATE(rom_load_address), load_address - load_address);
+        load_address = ALIGN(load_address, 2 * KB);
+        ebda_write_dword(OFFSET_OF_PRIVATE(rom_load_address), load_address);
     }
 
     ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags),

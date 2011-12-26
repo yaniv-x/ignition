@@ -1113,13 +1113,15 @@ static bool_t load_expansion_rom(uint8_t *address, uint32_t size, uint bus, uint
         dest = (uint8_t*)get_ebda_private()->rom_load_address;
         end = (uint8_t*)BIOS32_START_ADDRESS;
 
+        ASSERT(ALIGN(BIOS32_START_ADDRESS, 2 * KB) == BIOS32_START_ADDRESS);
+
         if (image_size > end - dest) {
             D_MESSAGE("0x%x.0x%x: no space", bus, device);
             return FALSE;
         }
 
         mem_copy(dest, address, image_size);
-        get_ebda_private()->rom_load_address += image_size;
+        get_ebda_private()->rom_load_address = ALIGN((uint32_t)dest + image_size, 2 * KB);
         get_ebda_private()->loaded_rom_address = (uint32_t)dest;
         get_ebda_private()->loaded_rom_bus = bus;
         get_ebda_private()->loaded_rom_device = device;
