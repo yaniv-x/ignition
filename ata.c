@@ -182,9 +182,16 @@ typedef _Packed struct FixDiskParamTable{ /*translated*/
 void int13_handler();
 
 
-static void wait_ready(uint16_t alt_port)
+static void wait_ready(uint16_t cmd_port, uint16_t ctrl_port, uint8_t device_reg)
 {
-    while ((inb(alt_port) & (ATA_STATUS_BUSY_MASK | ATA_STATUS_READY_MASK)) !=
+    while ((inb(ctrl_port) & ATA_STATUS_BUSY_MASK)) {
+        D_MESSAGE("unexpecte busy");
+        delay(1000);
+    }
+
+    outb(cmd_port + ATA_IO_DEVICE, device_reg);
+
+    while ((inb(ctrl_port) & (ATA_STATUS_BUSY_MASK | ATA_STATUS_READY_MASK)) !=
                                                                         ATA_STATUS_READY_MASK) {
         D_MESSAGE("unexpecte");
         delay(1000);
@@ -276,11 +283,13 @@ static uint ata_pio_cmd(uint16_t cmd_port, uint16_t ctrl_port, PIOCmd __far * cm
 
     NO_INTERRUPT();
 
-    wait_ready(ctrl_port);
+    wait_ready(cmd_port, ctrl_port, cmd->regs[ATA_IO_DEVICE]);
 
-    for (i = ATA_IO_FEATURE; i <= ATA_IO_COMMAND; i++) {
+    for (i = ATA_IO_FEATURE; i < ATA_IO_DEVICE; i++) {
         outb(cmd_port + i, cmd->regs[i]);
     }
+
+    outb(cmd_port + ATA_IO_COMMAND, cmd->regs[ATA_IO_COMMAND]);
 
     return handler(cmd_port, ctrl_port, cmd->blocks, cmd->buf);
 }
@@ -293,14 +302,13 @@ static uint ata_pio_cmd_ext(uint16_t cmd_port, uint16_t ctrl_port, PIOCmdExt __f
 
     NO_INTERRUPT();
 
-    wait_ready(ctrl_port);
+    wait_ready(cmd_port, ctrl_port, cmd->device);
 
     for (i = ATA_IO_FEATURE; i < ATA_IO_DEVICE; i++) {
         outb(cmd_port + i, cmd->regs[i][PREVIOUS_REG]);
         outb(cmd_port + i, cmd->regs[i][CURRENT_REG]);
     }
 
-    outb(cmd_port + ATA_IO_DEVICE, cmd->device);
     outb(cmd_port + ATA_IO_COMMAND, cmd->command);
 
     return handler(cmd_port, ctrl_port, cmd->blocks, cmd->buf);
@@ -928,7 +936,7 @@ static bool_t transmit_packet_command(ATADevice __far * device, void __far * com
     uint8_t reason;
     uint i;
 
-    wait_ready(device->ctrl_port);
+    wait_ready(device->cmd_port, device->ctrl_port, 0);
 
     for (i = ATA_IO_FEATURE; i < ATA_IO_LBA_MID; i++) {
         outb(device->cmd_port + i, 0);
@@ -936,7 +944,6 @@ static bool_t transmit_packet_command(ATADevice __far * device, void __far * com
 
     outb(device->cmd_port + ATA_IO_LBA_MID, max_transfer);
     outb(device->cmd_port + ATA_IO_LBA_HIGH, max_transfer >> 8);
-    outb(device->cmd_port + ATA_IO_DEVICE, 0);
     outb(device->cmd_port + ATA_IO_COMMAND, ATA_CMD_PACKET);
 
     while (((status = inb(device->ctrl_port)) & ATA_STATUS_BUSY_MASK)); //todo: timout
