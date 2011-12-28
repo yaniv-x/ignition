@@ -305,8 +305,8 @@ align 8
 gdt dd 0x00000000, 0x00000000; first descriptor must be null descriptor
     dd 0x0000ffff, (SD_CS | SD_PRESENT | SD_32 | SD_4K | (0x0f << SD_HLIMIT_SHIFT)) ; 32bit code
     dd 0x0000ffff, (SD_DS | SD_PRESENT| SD_32 | SD_4K | (0x0f << SD_HLIMIT_SHIFT))  ; 32bit data
-    dd 0x00000010, (SD_CS | SD_PRESENT | SD_4K | 0x0f) ; 16bit code base is 0xf0000 and limit 64kb
-    dd 0x00000010, (SD_DS | SD_PRESENT| SD_4K | 0x0f)  ; 16bit data base is 0xf0000 limit is 64kb
+    dd 0x0000000f, (SD_CS | SD_PRESENT | SD_4K | 0x0f) ; 16bit code base is 0xf0000 and limit 64kb
+    dd 0x0000000f, (SD_DS | SD_PRESENT| SD_4K | 0x0f)  ; 16bit data base is 0xf0000 limit is 64kb
     dd 0x0000ffff, (SD_DS | SD_PRESENT| SD_4K | (0x0f << SD_HLIMIT_SHIFT)) ; 16bit unreal data
 gdt_end:
 

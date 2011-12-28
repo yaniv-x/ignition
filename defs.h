@@ -404,7 +404,7 @@
 #define CR0_PE (1 << 0)
 #define CR0_CD (1 << 30)
 
-#define SD_CS (0x18 << 8)
+#define SD_CS (0x1a << 8)
 #define SD_DS (0x12 << 8)
 #define SD_PRESENT (1 << 15)
 #define SD_32 (1 << 22)
