@@ -28,11 +28,14 @@
 #define _H_PLATFORM
 
 #include "types.h"
+#include "utils.h"
 #include "nox.h"
 
-#define BIOS_PRIVATE_READ(member, ptr)                                          \
+#define BIOS_PRIVATE_READ(member, ptr) {                                        \
+    ASSERT(sizeof(*ptr) == SIZE_OF(PrivateData, member));                       \
     platform_read(PLATFORM_BIOS_DATA_START + OFFSET_OF(PrivateData, member),    \
-                  ptr, SIZE_OF(PrivateData, member))
+                  ptr, SIZE_OF(PrivateData, member));                           \
+}
 
 void platform_report_error(uint32_t code);
 void platform_read(uint32_t offset, void __far * in_dest, uint32_t size);

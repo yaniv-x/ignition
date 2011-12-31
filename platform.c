@@ -151,7 +151,7 @@ void platform_printf(const char __far * format, ...)
     format_str(platform_printf_cb, &data, format, SKIP_STACK_ARG(const char __far *, args));
 
     outb(data.port + PLATFORM_IO_BYTE, 0);
-    outb(get_port() + PLATFORM_IO_LOG, 0);
+    outb(data.port + PLATFORM_IO_LOG, 0);
 
     put_eflags(eflags);
 }

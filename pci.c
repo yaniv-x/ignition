@@ -241,7 +241,7 @@ static void pcibios_get_irq_option(UserRegs __far * context)
     IRQRoutingOptionBuffer __far * buff;
     IRQOption __far * dest;
     uint required_size;
-    uint table_size;
+    uint8_t table_size;
     uint i;
 
     D_MESSAGE("start");
@@ -306,7 +306,7 @@ void pcibios_service(UserRegs __far * context)
 {
     NO_INTERRUPT();
 
-    D_MESSAGE();
+    D_MESSAGE("al 0x%x", AL(context));
 
     FLAGS(context) |= (1 << CPU_FLAGS_CF_BIT);
 
