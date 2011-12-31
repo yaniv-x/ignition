@@ -24,7 +24,7 @@
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 %endif
 
-segment _TEXT class=ENTRY USE16 align=1 CPU=686
+segment _TEXT class=CODE USE16 align=1 CPU=686
 group DGROUP _TEXT
 
 %define BIOS16_STACK_BASE 0xfff0

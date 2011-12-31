@@ -1310,12 +1310,6 @@ static void edd_write_sectors(UserRegs __far * context)
 
 void on_int13(UserRegs __far * context)
 {
-    // need to investigate crash while the following is in the switch statement
-    if (AH(context) == INT13_FUNC_EDD_WRITE_SECTORS) {
-        edd_write_sectors(context);
-        return;
-    }
-
     switch (AH(context)) {
     case INT13_FUNC_EDD_SEEK:
     case INT13_FUNC_EDD_VERIFY:
@@ -1406,6 +1400,9 @@ void on_int13(UserRegs __far * context)
         int13_success(context);
         break;
     }
+    case INT13_FUNC_EDD_WRITE_SECTORS:
+        edd_write_sectors(context);
+        break;
     case INT13_FUNC_WRITE_SECTORS: {
         ATADevice __far * device = find_hd(DL(context));
         uint8_t __far * dest;

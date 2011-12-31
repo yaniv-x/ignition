@@ -1,5 +1,5 @@
 name bios.bin
-format dos com 
+format dos com
 
 file entry.o
 file bios.o
@@ -19,7 +19,6 @@ file lib16/i4d.o
 file lib16/i4m.o
 
 order
-    clname ENTRY
     clname CODE
     clname DATA
 
