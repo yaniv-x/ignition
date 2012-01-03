@@ -56,9 +56,12 @@ uint8_t bda_read_byte(uint16_t offset);
 void bda_write_byte(uint16_t offset, uint8_t val);
 void bda_write_word(uint16_t offset, uint16_t val);
 
-uint16_t ebda_read_word(uint16_t offset);
 uint8_t ebda_read_byte(uint16_t offset);
-void ebda_write_byte(uint16_t offset, uint16_t val);
+uint16_t ebda_read_word(uint16_t offset);
+uint32_t ebda_read_dword(uint16_t offset);
+void ebda_write_byte(uint16_t offset, uint8_t val);
+void ebda_write_word(uint16_t offset, uint16_t val);
+void ebda_write_dword(uint16_t offset, uint32_t val);
 
 void delay(uint32_t milisec);
 void beep();
@@ -84,6 +87,7 @@ void boot();
 void boot_init();
 
 
+void mouse_service(UserRegs __far * context);
 void keyboard_init();
 
 

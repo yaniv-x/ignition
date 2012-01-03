@@ -33,6 +33,7 @@
 void keyboard_interrupt_handler();
 void mouse_interrupt_handler();
 void int16_handler();
+void call_mouse_handler();
 
 
 typedef struct ScanTrans {
@@ -929,6 +930,13 @@ static void kbd_send_command(uint8_t val)
 }
 
 
+static void kbd_send_mouse_data_sync(uint8_t val)
+{
+    kbd_send_command(KBDCTRL_CMD_WRITE_TO_MOUSE);
+    kbd_send_data_sync(val);
+}
+
+
 static uint8_t kbd_receive_keyboard_data()
 {
     for (;;) {
@@ -1021,6 +1029,8 @@ static void init_keyboard()
     outb(IO_PORT_PIC1 + 1, (inb(IO_PORT_PIC1 + 1) & ~(1 << PIC1_KEYBOARD_PIN)));
 }
 
+#define MOUSE_ACTIVE_MASK (EBDA_MOUSE_FLAGS_HANDLER | EBDA_MOUSE_FLAGS_ENABLED | \
+                           EBDA_MOUSE_FLAGS_INITILIZED | EBDA_MOUSE_FLAGS_READY)
 
 void on_mouse_interrupt()
 {
@@ -1033,7 +1043,25 @@ void on_mouse_interrupt()
             // unexpected.
             bios_info(BIOS_INFO_MOUSE_INT_KBD_DATA);
         } else {
+            uint16_t flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS);
+            uint8_t pos;
+            uint8_t end;
+
             val = inb(IO_PORT_KBD_DATA);
+
+            pos = flags & EBDA_MOUSE_FLAGS_DATA_POS_MASK;
+            ebda_write_byte(EBDA_OFFSET_MOUSE_DATA + pos, val);
+            end = (flags & EBDA_MOUSE_FLAGS_PKT_SIZE_MASK) >> EBDA_MOUSE_FLAGS_PKT_SIZE_SHIFT;
+
+            if (pos < end) {
+                ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, flags + 1);
+            } else {
+                ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS,  flags & ~EBDA_MOUSE_FLAGS_DATA_POS_MASK);
+
+                if ((flags & MOUSE_ACTIVE_MASK) == MOUSE_ACTIVE_MASK) {
+                    call_mouse_handler(end + 1);
+                }
+            }
         }
     }
 
@@ -1061,6 +1089,30 @@ static uint8_t kbd_receive_mouse_data()
         if (!(status & KBDCTRL_STATUS_MOUSE_DATA_READY_MASK)) {
             //todo: send data to keyboard handler
             platform_debug_string(__FUNCTION__ ": droping keyboard data");
+            continue;
+        }
+
+        return data;
+    }
+}
+
+
+static uint8_t kbd_receive_mouse_data_sync()
+{
+    for (;;) {
+        uint8_t status;
+        uint8_t data;
+
+        status = inb(IO_PORT_KBD_STATUS);
+
+        if (!(status & KBDCTRL_STATUS_DATA_READY_MASK)) {
+            continue;
+        }
+
+        data = inb(IO_PORT_KBD_DATA);
+
+        if (!(status & KBDCTRL_STATUS_MOUSE_DATA_READY_MASK)) {
+            D_MESSAGE("dropping keyboard data");
             continue;
         }
 
@@ -1241,6 +1293,370 @@ void on_int16(UserRegs __far * context)
         D_MESSAGE("not supported 0x%lx", context->eax);
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
+    }
+}
+
+
+enum {
+    MOUSE_SERV_ERR_OK = 0,
+    MOUSE_SERV_ERR_INVALID_FUNC = 1,
+    MOUSE_SERV_ERR_INVALID_INPUT = 2,
+    MOUSE_SERV_ERR_INTERFACE_ERROR = 3,
+    MOUSE_SERV_ERR_NO_HANDLER = 5,
+};
+
+
+typedef struct MouseCmdContext {
+    uint8_t cmd;
+    bool_t push_back;
+    uint8_t push_back_val;
+} MouseCmdContext;
+
+
+static uint8_t mouse_cmd_start(MouseCmdContext __far * context)
+{
+    uint8_t status;
+
+    kbd_send_command(KBDCTRL_CMD_DISABLE_KEYBOARD);
+
+    status = inb(IO_PORT_KBD_STATUS);
+
+    if ((status & KBDCTRL_STATUS_DATA_READY_MASK) &&
+        !(status & KBDCTRL_STATUS_MOUSE_DATA_READY_MASK)) {
+        D_MESSAGE("keyboard data pending");
+        context->push_back = TRUE;
+        context->push_back_val = inb(IO_PORT_KBD_DATA);
+    } else {
+        context->push_back = FALSE;
+    }
+
+    kbd_send_mouse_data_sync(context->cmd);
+
+    return kbd_receive_mouse_data_sync();
+}
+
+
+static void mouse_cmd_end(MouseCmdContext __far * context)
+{
+    uint16_t mouse_flags;
+    uint8_t status;
+
+    // nox reset the output buffer on any command
+    mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS);
+    ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, mouse_flags & ~EBDA_MOUSE_FLAGS_DATA_POS_MASK);
+
+    if (context->push_back) {
+        kbd_send_command(KBDCTRL_CMD_WRITE_KBD_OUTPUT);
+        kbd_send_data_sync(context->push_back_val);
+    }
+
+    kbd_send_command(KBDCTRL_CMD_ENABLE_KEYBOARD);
+}
+
+
+static bool_t mouse_reset(uint packet_size, uint8_t __far * device_id)
+{
+    MouseCmdContext contxet;
+    uint16_t mouse_flags;
+    uint8_t reply;
+    bool_t ok;
+
+    mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS);
+    mouse_flags &= ~(EBDA_MOUSE_FLAGS_HANDLER | EBDA_MOUSE_FLAGS_INITILIZED);
+    mouse_flags |= packet_size << EBDA_MOUSE_FLAGS_PKT_SIZE_SHIFT;
+    ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, mouse_flags);
+
+    contxet.cmd = MOUSE_CMD_RESET;
+    reply = mouse_cmd_start(&contxet);
+
+    if (reply == KBD_ACK) {
+        if (kbd_receive_mouse_data_sync() != KBD_SELF_TEST_REPLAY) {
+            D_MESSAGE("self test failed");
+            ok = FALSE;
+        } else {
+            ok = TRUE;
+        }
+
+        *device_id = kbd_receive_mouse_data_sync();
+    }  else {
+        D_MESSAGE("failed");
+        ok = FALSE;
+    }
+
+    if (ok) {
+        mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS);
+        mouse_flags |= EBDA_MOUSE_FLAGS_READY;
+        ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, mouse_flags);
+    }
+
+    mouse_cmd_end(&contxet);
+
+    return ok;
+}
+
+
+static uint8_t mouse_set(uint8_t cmd_code, uint8_t val)
+{
+    uint16_t mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS);
+    MouseCmdContext cmd;
+    uint8_t reply;
+    uint8_t ret;
+
+    if (!(mouse_flags & EBDA_MOUSE_FLAGS_READY)) {
+        D_MESSAGE("not ready");
+        return MOUSE_SERV_ERR_INTERFACE_ERROR;
+    }
+
+    cmd.cmd = cmd_code;
+    reply = mouse_cmd_start(&cmd);
+
+    if (reply != KBD_ACK) {
+        D_MESSAGE("failed cmd 0x%x", cmd_code);
+        ret = MOUSE_SERV_ERR_INTERFACE_ERROR;
+    } else {
+        kbd_send_mouse_data_sync(val);
+        reply = kbd_receive_mouse_data_sync();
+
+        if (reply != KBD_ACK) {
+            D_MESSAGE("failed cmd 0x%x val 0x%x", cmd_code, val);
+            ret = MOUSE_SERV_ERR_INVALID_INPUT;
+        } else {
+            ret = MOUSE_SERV_ERR_OK;
+       }
+    }
+
+    mouse_cmd_end(&cmd);
+
+    return ret;
+}
+
+
+void mouse_service(UserRegs __far * context)
+{
+    MouseCmdContext cmd;
+    uint16_t mouse_flags;
+    uint8_t reply;
+
+    NO_INTERRUPT();
+
+    switch (AL(context)) {
+    case INT15_MOUSE_ENABLE_DISABLE: {
+        mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS);
+
+        if (!(mouse_flags & EBDA_MOUSE_FLAGS_READY)) {
+            D_MESSAGE("not ready al 0x%x", AL(context));
+            AH(context) = MOUSE_SERV_ERR_INTERFACE_ERROR;
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            break;
+        }
+
+        switch (BH(context)) {
+        case 0:
+            cmd.cmd = MOUSE_CMD_DISABLE_DATA_REPORTING;
+            mouse_flags &= ~EBDA_MOUSE_FLAGS_ENABLED;
+            break;
+        case 1: {
+            if (!(mouse_flags & EBDA_MOUSE_FLAGS_HANDLER)) {
+                 D_MESSAGE("no handler", AL(context));
+                 AH(context) = MOUSE_SERV_ERR_NO_HANDLER;
+                 context->flags |= (1 << CPU_FLAGS_CF_BIT);
+                 return;
+            }
+
+            cmd.cmd = MOUSE_CMD_ENABLE_DATA_REPORTING;
+            mouse_flags |= EBDA_MOUSE_FLAGS_ENABLED;
+            break;
+        }
+        default:
+            D_MESSAGE("invalid input al 0x%x bh 0x%x", AL(context), BH(context));
+            AH(context) = MOUSE_SERV_ERR_INVALID_INPUT;
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            return;
+
+        }
+
+        ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, mouse_flags);
+
+        reply = mouse_cmd_start(&cmd);
+        mouse_cmd_end(&cmd);
+
+        if (reply == KBD_ACK) {
+            AH(context) = MOUSE_SERV_ERR_OK;
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        } else {
+            D_MESSAGE("enable/disable failed");
+            mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS);
+            mouse_flags &= ~EBDA_MOUSE_FLAGS_ENABLED;
+            ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, mouse_flags);
+            AH(context) = MOUSE_SERV_ERR_INTERFACE_ERROR;
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        }
+        break;
+    }
+    case INT15_MOUSE_RESET: {
+        uint8_t device_id;
+        uint8_t size;
+
+        mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS);
+        size = (mouse_flags & EBDA_MOUSE_FLAGS_PKT_SIZE_MASK) >> EBDA_MOUSE_FLAGS_PKT_SIZE_SHIFT;
+
+        if (mouse_reset(size, &device_id)) {
+            BH(context) = 0;
+            BL(context) = device_id;
+            AH(context) = MOUSE_SERV_ERR_OK;
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        } else {
+            AH(context) = MOUSE_SERV_ERR_INTERFACE_ERROR;
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        }
+
+        break;
+    }
+    case INT15_MOUSE_SET_SAMPLING_RATE: {
+        reply = mouse_set(MOUSE_CMD_SAMPLE_RATE, BH(context));
+
+        if ((AH(context) = reply)) {
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        } else {
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        }
+
+        break;
+    }
+    case INT15_MOUSE_SET_RESOLUTION: {
+        reply = mouse_set(MOUSE_CMD_RESOLUTION, BH(context));
+
+        if ((AH(context) = reply)) {
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        } else {
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        }
+
+        break;
+    }
+    case INT15_MOUSE_GET_ID: {
+        reply = mouse_cmd_start(&cmd);
+
+        if (reply != KBD_ACK) {
+            D_MESSAGE("get id failed");
+            AH(context) = MOUSE_SERV_ERR_INTERFACE_ERROR;
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        } else {
+            BH(context) = kbd_receive_mouse_data_sync();
+            AH(context) = MOUSE_SERV_ERR_OK;
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        }
+
+        mouse_cmd_end(&cmd);
+        break;
+    }
+    case INT15_MOUSE_INITIALIZE: {
+        uint8_t device_id;
+
+        if (BH(context) != 3) {
+            // valid bh input is 1 <= bl <= 8. need to figure it out how to handle packet
+            // size other than 3.
+            if (BH(context) < 1 || BH(context) > 8) {
+                D_MESSAGE("invalid input al 0x%x bh 0x%x", AL(context), BH(context));
+            } else {
+                D_MESSAGE("unsupported packet size0x%x", BH(context));
+            }
+
+            mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS) & ~EBDA_MOUSE_FLAGS_INITILIZED;
+            ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, mouse_flags);
+
+            AH(context) = MOUSE_SERV_ERR_INVALID_INPUT;
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            break;
+        }
+
+        if (mouse_reset(BH(context) - 1, &device_id)) {
+            mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS) | EBDA_MOUSE_FLAGS_INITILIZED;
+            ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, mouse_flags);
+            AH(context) = MOUSE_SERV_ERR_OK;
+            context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        } else {
+            mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS) & ~EBDA_MOUSE_FLAGS_INITILIZED;
+            ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, mouse_flags);
+            AH(context) = MOUSE_SERV_ERR_INTERFACE_ERROR;
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        }
+
+        break;
+    }
+    case INT15_EXTENDED_COMMANDS:
+        switch (BH(context)) {
+        case 0:
+            cmd.cmd = MOUSE_CMD_STATUS;
+            reply = mouse_cmd_start(&cmd);
+
+            if (reply != KBD_ACK) {
+                D_MESSAGE("get status failed");
+                AH(context) = MOUSE_SERV_ERR_INTERFACE_ERROR;
+                context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            } else {
+                AL(context) = kbd_receive_mouse_data_sync();
+                CL(context) = kbd_receive_mouse_data_sync();
+                DL(context) = kbd_receive_mouse_data_sync();
+                AH(context) = MOUSE_SERV_ERR_OK;
+                context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+            }
+
+            mouse_cmd_end(&cmd);
+            break;
+        case 1:
+            cmd.cmd = MOUSE_CMD_SCALING_1_1;
+            reply = mouse_cmd_start(&cmd);
+            if (reply != KBD_ACK) {
+                D_MESSAGE("set 1:1 failed");
+                AH(context) = MOUSE_SERV_ERR_INTERFACE_ERROR;
+                context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            } else {
+                AH(context) = MOUSE_SERV_ERR_OK;
+                context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+            }
+            mouse_cmd_end(&cmd);
+            break;
+        case 2:
+            cmd.cmd = MOUSE_CMD_SCALING_2_1;
+            reply = mouse_cmd_start(&cmd);
+            if (reply != KBD_ACK) {
+                D_MESSAGE("set 2:1 failed");
+                AH(context) = MOUSE_SERV_ERR_INTERFACE_ERROR;
+                context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            } else {
+                AH(context) = MOUSE_SERV_ERR_OK;
+                context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+            }
+            mouse_cmd_end(&cmd);
+            break;
+        default:
+            D_MESSAGE("not supported func 0x%x", AL(context));
+            AH(context) = MOUSE_SERV_ERR_INVALID_FUNC;
+            context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        }
+        break;
+    case INT15_SET_HANDLER: {
+        uint16_t mouse_flags = ebda_read_word(EBDA_OFFSET_MOUSE_FLAGS);
+        void __far * handler = FAR_POINTER(void, context->es, BX(context));
+
+        if (!handler) {
+            mouse_flags &= ~EBDA_MOUSE_FLAGS_HANDLER;
+        } else {
+            mouse_flags |= EBDA_MOUSE_FLAGS_HANDLER;
+        }
+
+        ebda_write_dword(EBDA_OFFSET_MOUSE_HANDLER, (uint32_t)handler);
+        ebda_write_word(EBDA_OFFSET_MOUSE_FLAGS, mouse_flags);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        AH(context) = MOUSE_SERV_ERR_OK;
+        break;
+    }
+    default:
+        D_MESSAGE("not supported func 0x%x", AL(context));
+        AH(context) = MOUSE_SERV_ERR_INVALID_FUNC;
+        context->flags |= (1 << CPU_FLAGS_CF_BIT);
+        break;
     }
 }
 

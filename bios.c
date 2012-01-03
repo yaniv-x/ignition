@@ -211,7 +211,7 @@ uint8_t ebda_read_byte(uint16_t offset)
 }
 
 
-void ebda_write_byte(uint16_t offset, uint16_t val)
+void ebda_write_byte(uint16_t offset, uint8_t val)
 {
     uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
     write_byte(seg, offset, val);
@@ -225,21 +225,21 @@ uint16_t ebda_read_word(uint16_t offset)
 }
 
 
-static void ebda_write_word(uint16_t offset, uint16_t val)
+void ebda_write_word(uint16_t offset, uint16_t val)
 {
     uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
     write_word(seg, offset, val);
 }
 
 
-static uint32_t ebda_read_dword(uint16_t offset)
+uint32_t ebda_read_dword(uint16_t offset)
 {
     uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
     return read_dword(seg, offset);
 }
 
 
-static void ebda_write_dword(uint16_t offset, uint32_t val)
+void ebda_write_dword(uint16_t offset, uint32_t val)
 {
     uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
     write_dword(seg, offset, val);
@@ -258,7 +258,8 @@ void set_irq_context()
     uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
 
     if ((flags & BIOS_FLAGS_HARD_INT)) {
-        bios_error(BIOS_ERROR_DOUBLE_HARD_INT);
+        //irq stack is disabled, for that reason it is not an error
+        //bios_error(BIOS_ERROR_DOUBLE_HARD_INT);
     }
 
     ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
@@ -876,6 +877,9 @@ void on_int15(UserRegs __far * context)
     case INT15_FUNC_GET_EBDA_SEG:
         context->es = bda_read_word(BDA_OFFSET_EBDA);
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    case INT15_FUNC_MOUSE:
+        mouse_service(context);
         break;
     case INT15_FUNC_COPY_EXT_MEM: {
         uint32_t address;

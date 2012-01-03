@@ -27,6 +27,7 @@
 segment _TEXT class=CODE USE16 align=1 CPU=686
 group DGROUP _TEXT
 
+%include "defs.inc"
 %include "asm.inc"
 
 extern _freeze
@@ -92,5 +93,33 @@ _out_words:
     pop si
     pop ds
     pop bp
+    ret
+
+
+global _call_mouse_handler
+_call_mouse_handler:
+
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+
+    mov al, [EBDA_OFFSET_MOUSE_DATA + 0]
+    push ax
+    mov al, [EBDA_OFFSET_MOUSE_DATA + 1]
+    push ax
+    mov al, [EBDA_OFFSET_MOUSE_DATA + 2]
+    push ax
+    xor ax, ax
+    push ax
+
+    sti
+    call far [EBDA_OFFSET_MOUSE_HANDLER]
+    cli
+
+    add sp, 8
+
+    mov ax, cs
+    mov ds, ax
+
     ret
 
