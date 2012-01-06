@@ -139,18 +139,6 @@ static void write_msr(uint32_t index, uint64_t val)
 }
 
 
-static void mem_copy(void* dest, const void* src, uint32_t size)
-{
-    const uint8_t* from = src;
-    uint8_t* to = dest;
-    uint32_t i;
-
-    for ( i = 0; i < size; i++) {
-        to[i] = from[i];
-    }
-}
-
-
 static EBDA* get_ebda()
 {
     uint32_t seg = *(uint16_t*)(bda + BDA_OFFSET_EBDA);
@@ -784,7 +772,7 @@ static void init_globals()
     globals->alloc_start = DUMB_ALLOC_START;
     globals->alloc_end = DUMB_ALLOC_START + DUMB_ALLOC_SIZE;
     globals->alloc_pos = globals->alloc_start;
-    globals->real_hard_int_ss = BIOS_HARD_INT_STACK_ADDRESS >> 4;
+    globals->real_hard_int_ss = BIOS_HARD_INT_STACK_ADDRESS >> 4; // BUG: need to be relative
     globals->real_hard_int_sp = BIOS_HARD_INT_STACK_SIZE_KB * KB;
 
     eax = 0x80000008;
@@ -1281,6 +1269,8 @@ static void init()
     ASSERT(OFFSET_OF(EBDAPrivate, real_hard_int_ss) == PRIVATE_OFFSET_HARD_INT_SS);
     ASSERT(OFFSET_OF(EBDAPrivate, real_hard_int_sp) == PRIVATE_OFFSET_HARD_INT_SP);
     ASSERT(OFFSET_OF(EBDAPrivate, bios_flags) == PRIVATE_OFFSET_FLAGS);
+    ASSERT(OFFSET_OF(EBDAPrivate, int13_emu_next_seg) == PRIVATE_OFFSET_INT13_EMU_SEG);
+    ASSERT(OFFSET_OF(EBDAPrivate, int13_emu_next_offset) == PRIVATE_OFFSET_INT13_EMU_OFFSET);
 
     init_cpu();
     init_rtc();

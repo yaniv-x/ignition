@@ -51,6 +51,8 @@ void on_int19()
     BootOption __far * options = FAR_POINTER(BootOption, ebda_seg, OFFSET_OF_PRIVATE(boot_options));
     uint i;
 
+    ata_stop_emulation();
+
     for (i = 0; i < MAX_BOOT_OPTIONS; i++) {
         BootOption __far * now;
 
@@ -274,6 +276,7 @@ static void do_cd_boot(ATADevice __far * device, uint32_t catalog_sector)
     void __far * catalog;
     uint16_t num_sectors;
     uint16_t code_seg;
+    void __far * dest;
     uint8_t id;
 
     catalog = FAR_POINTER(CDBootRecord, CD_BOOT_SEG, 0);
@@ -296,8 +299,13 @@ static void do_cd_boot(ATADevice __far * device, uint32_t catalog_sector)
         return;
     }
 
-    if (boot_entry->media_type != 0) {
+    if (boot_entry->media_type > 3) { // hd emulation is disabled
         D_MESSAGE("emulation 0x%x is not supported", boot_entry->media_type);
+        return;
+    }
+
+    if (!boot_entry->sectors_count) {
+        D_MESSAGE("invalid sector count 0x%x", boot_entry->media_type);
         return;
     }
 
@@ -306,15 +314,40 @@ static void do_cd_boot(ATADevice __far * device, uint32_t catalog_sector)
                                                     boot_entry->sectors_count / 4;
     //todo: verfiy valid address
 
-    if (ata_cdrom_read(device, boot_entry->start_sector, num_sectors,
-                       FAR_POINTER(void, code_seg, 0)) != num_sectors) {
+    dest = FAR_POINTER(void, code_seg, 0);
+
+    if (ata_cdrom_read(device, boot_entry->start_sector, num_sectors, dest) != num_sectors) {
         D_MESSAGE("load failed");
         return;
     }
 
-    ata_cdrom_allow_removal(device);
-
-    id = device->id;
+    switch (boot_entry->media_type) {
+    case 0:
+        ata_cdrom_allow_removal(device);
+        id = device->id;
+        break;
+    case 1:
+    case 2:
+    case 3:
+        if (!ata_start_fd_emulation(device, boot_entry->start_sector, boot_entry->media_type)) {
+            D_MESSAGE("start fd emulation failed");
+            ata_cdrom_allow_removal(device);
+            return;
+        }
+        id = 0;
+        break;
+    case 4:
+        if (!ata_start_hd_emulation(device, boot_entry->start_sector, dest)) {
+            D_MESSAGE("start disk emulation failed");
+            ata_cdrom_allow_removal(device);
+            return;
+        }
+        id = 0x80;
+        break;
+    default:
+        D_MESSAGE("invalid media type %u", boot_entry->media_type);
+        return;
+    }
 
     __asm {
         mov dl, id
@@ -408,8 +441,8 @@ void boot_add_cd(ATADevice __far * device)
 
 void boot()
 {
-    ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags),
-                    ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags)) & ~BIOS_FLAGS_UNREAL);
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags),
+                    ebda_read_word(OFFSET_OF_PRIVATE(bios_flags)) & ~BIOS_FLAGS_UNREAL);
     ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_NOP);
     call32();
 

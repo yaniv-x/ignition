@@ -292,8 +292,7 @@ static void kbd_push_key(uint16_t key_val)
         return;
     }
 
-    if (ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags) &
-                                                    BIOS_FLAGS_KBD_WAIT)) {
+    if (ebda_read_word(OFFSET_OF_PRIVATE(bios_flags) & BIOS_FLAGS_KBD_WAIT)) {
         __asm {
             mov ah, INT15_FUNC_DEVICE_POST
             mov al, 0x02 ; device type keyboard
@@ -564,7 +563,7 @@ static void kbd_send_data_sync(uint8_t val)
 
 static void kbd_next_cmd()
 {
-    uint8_t bios_flags = ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags));
+    uint16_t bios_flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
     uint16_t flags_2;
 
     if (!(bios_flags & BIOS_FLAGS_KBD_RATE_TRIGGER)) {
@@ -581,7 +580,7 @@ static void kbd_next_cmd()
 
     bios_flags &= ~BIOS_FLAGS_KBD_RATE_TRIGGER;
     bios_flags |= BIOS_FLAGS_KBD_RATE_CMD_ACK;
-    ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
     kbd_send_data_sync(KBD_CMD_REPEAT_RATE);
 }
 
@@ -589,7 +588,7 @@ static void kbd_next_cmd()
 static uint8_t kbd_handle_leds(uint8_t scan)
 {
     uint16_t flags_2 = bda_read_word(BDA_OFFSET_KBD_FLAGS_2);
-    uint8_t bios_flags;
+    uint16_t bios_flags;
 
     if (!(flags_2 & BDA_KBD_FLAGS_2_LEDS_IN_PROGRESS)) {
         return FALSE;
@@ -601,13 +600,13 @@ static uint8_t kbd_handle_leds(uint8_t scan)
         return TRUE;
     }
 
-    bios_flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
+    bios_flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
 
     if ((bios_flags & BIOS_FLAGS_KBD_LEDS_DATA)) {
         uint16_t leds;
 
         bios_flags &= ~BIOS_FLAGS_KBD_LEDS_DATA;
-        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags), bios_flags);
+        ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
 
         leds = (bda_read_word(BDA_OFFSET_KBD_FLAGS_2) >> BDA_KBD_FLAGS_2_LEDS_SHIFT) & 0x7;
         kbd_send_data_sync(leds);
@@ -626,15 +625,15 @@ static void kbd_update_leds(uint16_t flags_1)
 {
     uint16_t leds = (flags_1 >> BDA_KBD_FLAGS_1_LEDS_SHIFT) & 0x7;
     uint16_t flags_2 = bda_read_word(BDA_OFFSET_KBD_FLAGS_2) & ~BDA_KBD_FLAGS_2_LEDS_MASK;
-    uint8_t bios_flags;
+    uint16_t bios_flags;
 
     flags_2 |= (leds << BDA_KBD_FLAGS_2_LEDS_SHIFT) | BDA_KBD_FLAGS_2_LEDS_IN_PROGRESS;
 
     bda_write_word(BDA_OFFSET_KBD_FLAGS_2, flags_2);
 
-    bios_flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
+    bios_flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
     bios_flags |= BIOS_FLAGS_KBD_LEDS_DATA;
-    ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags), bios_flags);
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
 
     kbd_send_data_sync(KBD_CMD_LED);
 }
@@ -816,17 +815,17 @@ static void process_scan(uint8_t scan)
 
 static bool_t kbd_handle_rate(uint8_t val)
 {
-    uint8_t bios_flags = ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags));
+    uint16_t bios_flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
 
     if ((bios_flags & BIOS_FLAGS_KBD_RATE_CMD_ACK)) {
         bios_flags &= ~BIOS_FLAGS_KBD_RATE_CMD_ACK;
-        ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
+        ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
 
         if (val == KBD_ACK) {
             uint8_t repeat = ebda_read_byte(EBDA_OFFSET_KBD_RATE);
             uint8_t delay = ebda_read_byte(EBDA_OFFSET_KBD_DELAY);
             bios_flags |= BIOS_FLAGS_KBD_RATE_DATA_ACK;
-            ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
+            ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
             kbd_send_data_sync((delay << 5) | repeat);
             return TRUE;
         } else if (val == KBD_NAK) {
@@ -838,7 +837,7 @@ static bool_t kbd_handle_rate(uint8_t val)
         return TRUE;
     } else if ((bios_flags & BIOS_FLAGS_KBD_RATE_DATA_ACK)) {
         bios_flags &= ~BIOS_FLAGS_KBD_RATE_DATA_ACK;
-        ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
+        ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), bios_flags);
 
         if (val != KBD_ACK) {
             D_MESSAGE("failed");
@@ -1161,14 +1160,14 @@ static void init_mouse()
 
 static void kbd_set_repeat(uint8_t repeat, uint8_t delay)
 {
-    uint8_t bios_flags;
+    uint16_t bios_flags;
 
     NO_INTERRUPT();
 
     ebda_write_byte(EBDA_OFFSET_KBD_RATE, repeat);
     ebda_write_byte(EBDA_OFFSET_KBD_DELAY, delay);
-    bios_flags = ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags));
-    ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags), bios_flags | BIOS_FLAGS_KBD_RATE_TRIGGER);
+    bios_flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), bios_flags | BIOS_FLAGS_KBD_RATE_TRIGGER);
     kbd_next_cmd();
 }
 
@@ -1197,10 +1196,8 @@ void on_int16(UserRegs __far * context)
                 HALT();
                 CLI();
             } else {
-                uint8_t bios_flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
-                                                    OFFSET_OF(EBDAPrivate, bios_flags));
-                ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
-                                bios_flags | BIOS_FLAGS_KBD_WAIT);
+                uint16_t bios_flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
+                ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), bios_flags | BIOS_FLAGS_KBD_WAIT);
 
                 __asm {
                     mov ah, INT15_FUNC_DEVICE_BUSY
@@ -1212,10 +1209,8 @@ void on_int16(UserRegs __far * context)
                 no_self_wait:
                 }
 
-                bios_flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
-                                                    OFFSET_OF(EBDAPrivate, bios_flags));
-                ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
-                                bios_flags & ~BIOS_FLAGS_KBD_WAIT);
+                bios_flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
+                ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), bios_flags & ~BIOS_FLAGS_KBD_WAIT);
             }
         }
 

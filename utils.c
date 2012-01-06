@@ -204,6 +204,18 @@ void mem_reset(void __far * ptr, uint size)
 }
 
 
+void mem_copy(void __far * dest, const void __far * src, uint32_t size)
+{
+    const uint8_t __far * from = src;
+    uint8_t __far * to = dest;
+    uint32_t i;
+
+    for ( i = 0; i < size; i++) {
+        to[i] = from[i];
+    }
+}
+
+
 uint32_t string_length(const uint8_t __far * str)
 {
     uint32_t len = 0;

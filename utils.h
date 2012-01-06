@@ -126,6 +126,7 @@ void format_mem_str(char __far *  dest, uint len, const char __far * format, ...
 
 void mem_set(void __far * ptr, uint8_t patern, uint size);
 void mem_reset(void __far * ptr, uint size);
+void mem_copy(void __far * dest, const void __far * src, uint32_t size);
 
 uint32_t string_length(const char __far *  str);
 void string_copy(char __far *  dest, const char __far *  src);

@@ -68,6 +68,7 @@ void beep();
 uint8_t is_hard_int_context();
 void register_interrupt_handler(uint line, int_cb_t cb, uint opaque);
 void unregister_interrupt_handler(uint line, int_cb_t cb, uint opaque);
+void get_int_vec(uint8_t index, uint16_t __far * seg, uint16_t __far * offset);
 void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset);
 void term_printf(const char* format, ...);
 
@@ -77,6 +78,9 @@ uint ata_hd_read(ATADevice __far * device, uint64_t address, uint count, uint8_t
 bool_t ata_cdrom_prevent_removal(ATADevice __far * device);
 bool_t ata_cdrom_allow_removal(ATADevice __far * device);
 uint ata_cdrom_read(ATADevice __far * device, uint32_t sector, uint16_t count, void __far * dest);
+bool_t ata_start_fd_emulation(ATADevice __far * device, uint32_t image_lba, uint type);
+bool_t ata_start_hd_emulation(ATADevice __far * device, uint32_t image_lba, uint8_t __far * mbr);
+void ata_stop_emulation();
 bool_t ata_cdrom_start(ATADevice __far * device);
 void ata_init();
 

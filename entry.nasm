@@ -32,13 +32,28 @@ group DGROUP _TEXT
 %include "defs.inc"
 %include "asm.inc"
 
+%macro SOFT_INT_PUSH_ALL 0
+    pushad
+    push ds
+    push es
+    push fs
+    push gs
+%endmacro
+
+%macro SOFT_INT_POP_ALL 0
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    popad
+%endmacro
 
 extern _init
 extern _on_hard_interrupt
 extern _set_irq_context
 extern _clear_irq_context
 extern _on_int19
-
+extern _freeze
 
 global _unhandled_interrupt
 global _call32
@@ -198,7 +213,7 @@ _%1_interrupt_handler:
     ;mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
     ;mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS], ss
     ;mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP], sp
-    ;mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SS]
+    ;mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SS]  BUG: need to be relative
     ;mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SP]
 
     pusha
@@ -239,11 +254,7 @@ IRQ_HANDLER mouse
 extern _on_%1
 global _%1_handler
 _%1_handler:
-    pushad
-    push ds
-    push es
-    push fs
-    push gs
+    SOFT_INT_PUSH_ALL
 
     mov ax, cs
     mov ds, ax
@@ -254,23 +265,129 @@ _%1_handler:
     call _on_%1
     add sp, 4
 
-    pop gs
-    pop fs
-    pop es
-    pop ds
-    popad
-
+    SOFT_INT_POP_ALL
     iret
 %endmacro
 
 INT_HANDLER int11 ; org F000h:F84Dh in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int12 ; org F000h:F841h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int13 ; org F000h:EC59h in IBM PC and 100%-compatible BIOSes
+                  ; (the fixed address handler will call int13, int13_hd_emulate, or
+                  ; int13_fd_emulate according to bios_flags)
 INT_HANDLER int15 ; org F000h:F859h in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int16 ; org F000h:E82Eh in IBM PC and 100%-compatible BIOSes
 INT_HANDLER int1a ; org F000h:FE6Eh in IBM PC and 100%-compatible BIOSes
 INT_HANDLER unhandled_int
 
+
+%macro INT_13_EMU 1
+extern _on_int13_%1_emulate
+global _int13_%1_emulate_handler
+_int13_%1_emulate_handler:
+
+    SOFT_INT_PUSH_ALL
+
+    mov ax, cs
+    mov ds, ax
+
+    mov ax, sp
+    push ss
+    push ax
+    call _on_int13_%1_emulate
+    add sp, 4
+
+    cmp ax, INT13_HANDLED
+    je .handled
+    cmp ax, INT13_DEC_AND_NEXT
+    je .dec_and_next
+    cmp ax, INT13_CALL_NEXT
+    je .next
+    call _freeze
+
+.dec_and_next:
+    SOFT_INT_POP_ALL
+    push bp
+
+    sub sp, 4
+    mov bp, sp
+
+    push ds
+    push ax
+
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    mov ax, [EBDA_PRIVATE_START + PRIVATE_OFFSET_INT13_EMU_OFFSET]
+    mov [bp], ax
+    mov ax, [EBDA_PRIVATE_START + PRIVATE_OFFSET_INT13_EMU_SEG]
+    mov [bp + 2], ax
+
+    pop ax
+    pop ds
+
+    pushf
+    dec dl
+    call far [bp]
+    inc dl
+
+    add sp, 4
+    mov bp, sp
+    push ax
+    pushf
+    pop ax
+    and ax, (1 << CPU_FLAGS_CF_BIT)
+    and word [bp + 6], ~(1 << CPU_FLAGS_CF_BIT)
+    or word [bp + 6], ax
+    pop ax
+
+    pop bp
+    iret
+
+.next:
+    SOFT_INT_POP_ALL
+    push bp
+
+    sub sp, 4
+    mov bp, sp
+
+    push ds
+    push ax
+
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+    mov ax, [EBDA_PRIVATE_START + PRIVATE_OFFSET_INT13_EMU_OFFSET]
+    mov [bp], ax
+    mov ax, [EBDA_PRIVATE_START + PRIVATE_OFFSET_INT13_EMU_SEG]
+    mov [bp + 2], ax
+
+    pop ax
+    pop ds
+
+    pushf
+    call far [bp]
+
+    add sp, 4
+    mov bp, sp
+    push ax
+    pushf
+    pop ax
+    and ax, (1 << CPU_FLAGS_CF_BIT)
+    and word [bp + 6], ~(1 << CPU_FLAGS_CF_BIT)
+    or word [bp + 6], ax
+    pop ax
+
+    pop bp
+    iret
+
+.handled:
+    SOFT_INT_POP_ALL
+    iret
+
+%endmacro
+
+INT_13_EMU fd
+INT_13_EMU hd
 
 global _int18_handler
 _int18_handler:

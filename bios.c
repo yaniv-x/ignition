@@ -246,33 +246,29 @@ void ebda_write_dword(uint16_t offset, uint32_t val)
 }
 
 
-uint8_t is_hard_int_context()
+ bool_t is_hard_int_context()
 {
-    return ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags)) &
-           BIOS_FLAGS_HARD_INT;
+    return !!(ebda_read_word(OFFSET_OF_PRIVATE(bios_flags)) & BIOS_FLAGS_HARD_INT);
 }
 
 
 void set_irq_context()
 {
-    uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
+    uint16_t flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
 
     if ((flags & BIOS_FLAGS_HARD_INT)) {
         //irq stack is disabled, for that reason it is not an error
         //bios_error(BIOS_ERROR_DOUBLE_HARD_INT);
     }
 
-    ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
-                    flags | BIOS_FLAGS_HARD_INT);
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), flags | BIOS_FLAGS_HARD_INT);
 }
 
 
 void clear_irq_context()
 {
-    uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
-
-    ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
-                    flags & ~BIOS_FLAGS_HARD_INT);
+    uint16_t flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), flags & ~BIOS_FLAGS_HARD_INT);
 }
 
 
@@ -292,6 +288,19 @@ typedef _Packed struct IntVector {
     uint16_t offset;
     uint16_t seg;
 } IntVector;
+
+
+void get_int_vec(uint8_t index, uint16_t __far * seg, uint16_t __far * offset)
+{
+    IntVector* entry = NULL;
+    uint16_t prev_seg;
+
+    entry += index;
+    prev_seg = set_ds(0);
+    *seg = entry->seg;
+    *offset = entry->offset;
+    set_ds(prev_seg);
+}
 
 
 void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
@@ -1031,8 +1040,7 @@ void on_int1a(UserRegs __far * context)
         break;
     }
     case INT1A_FUNC_SET_ALARM: {
-        uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
-                                       OFFSET_OF(EBDAPrivate, bios_flags));
+        uint16_t flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
         uint8_t reg_c;
 
         if ((flags & BIOS_FLAGS_ALRM_ACTIVE_MASK)) {
@@ -1051,16 +1059,13 @@ void on_int1a(UserRegs __far * context)
         reg_c = (reg_c | rtc_read(0x0c)) & ~RTC_REG_C_ALARM_INTERRUPT_MASK;
         ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c), reg_c);
 
-        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
-                        flags | BIOS_FLAGS_ALRM_ACTIVE_MASK);
+        ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), flags | BIOS_FLAGS_ALRM_ACTIVE_MASK);
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
     }
     case INT1A_FUNC_CANCEL_ALARM: {
-        uint8_t flags = ebda_read_byte(OFFSET_OF(EBDA, private) +
-                                       OFFSET_OF(EBDAPrivate, bios_flags));
-        ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags),
-                        flags & ~BIOS_FLAGS_ALRM_ACTIVE_MASK);
+        uint16_t flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
+        ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), flags & ~BIOS_FLAGS_ALRM_ACTIVE_MASK);
         rtc_write(0x0b, rtc_read(0x0b) & ~RTC_REG_B_ENABLE_ALARM_MASK);
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
         break;
@@ -1102,8 +1107,8 @@ void on_unhandled_int(UserRegs __far * context)
 
 void on_rtc_interrupt()
 {
+    uint16_t flags;
     uint8_t regc;
-    uint8_t flags;
 
     regc = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c));
     ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c), 0);
@@ -1143,7 +1148,7 @@ void on_rtc_interrupt()
         }
     }
 
-    flags = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, bios_flags));
+    flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
 
     if ((flags & BIOS_FLAGS_ALRM_ACTIVE_MASK)) {
         if ((regc & RTC_REG_C_ALARM_INTERRUPT_MASK)) {
@@ -1248,8 +1253,8 @@ static void int_exp_rom()
     uint8_t size_before;
     uint8_t size_after;
 
-    ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags),
-                    ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags)) | BIOS_FLAGS_UNREAL);
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags),
+                    ebda_read_word(OFFSET_OF_PRIVATE(bios_flags)) | BIOS_FLAGS_UNREAL);
     ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_NOP);
     call32();
 
@@ -1276,8 +1281,8 @@ static void int_exp_rom()
         ebda_write_dword(OFFSET_OF_PRIVATE(rom_load_address), load_address);
     }
 
-    ebda_write_byte(OFFSET_OF_PRIVATE(bios_flags),
-                    ebda_read_byte(OFFSET_OF_PRIVATE(bios_flags)) & ~BIOS_FLAGS_UNREAL);
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags),
+                    ebda_read_word(OFFSET_OF_PRIVATE(bios_flags)) & ~BIOS_FLAGS_UNREAL);
     ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_NOP);
     call32();
 }

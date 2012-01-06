@@ -86,6 +86,17 @@ typedef _Packed struct ATADevice {
 } ATADevice;
 
 
+typedef _Packed struct EmulatedDev {
+    uint8_t device_id;
+    uint8_t fd_type;
+    uint8_t heads;
+    uint8_t sec_per_track;
+    uint16_t cylinders;
+    uint32_t sectors;
+    uint32_t image_lba;
+} EmulatedDev;
+
+
 typedef _Packed struct BootOption {
    uint8_t type;
    uint8_t flags;
@@ -103,7 +114,9 @@ typedef _Packed struct EBDAPrivate {
     uint16_t real_user_sp;
     uint16_t real_hard_int_ss;
     uint16_t real_hard_int_sp;
-    uint8_t bios_flags;
+    uint16_t bios_flags;
+    uint16_t int13_emu_next_seg;
+    uint16_t int13_emu_next_offset;
     uint8_t next_cd_id;
 
     uint32_t below_1m_used_pages;
@@ -149,6 +162,8 @@ typedef _Packed struct EBDAPrivate {
     ATADevice ata_devices[MAX_ATA_DEVICES];
     uint8_t boot_order[MAX_BOOT_OPTIONS];
     BootOption boot_options[MAX_BOOT_OPTIONS];
+    EmulatedDev emulated_dev;
+    uint8_t read_buf[2048];
 } EBDAPrivate;
 
 

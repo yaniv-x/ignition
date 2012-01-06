@@ -120,6 +120,8 @@
 #define MAX_SECTORS ((uint32_t)MAX_CYLINDERS * MAX_HEADS * SECTORS_PER_TRACK)
 #define HD_SECTOR_SIZE 512
 #define CD_SECTOR_SIZE 2048
+#define MAX_HD 0x70 // id 0-0x6f, 0x7f - 0x70 are reserved for cd/dvd drives.
+                    // in reality max hd is limit by MAX_ATA_DEVICES
 
 #define ATAPI_PACKET_SIZE_MAX 16
 #define ATAPI_PIO_MAX_TRANSFER 0xfffe
@@ -180,6 +182,15 @@ typedef _Packed struct FixDiskParamTable{ /*translated*/
 
 
 void int13_handler();
+void int13_fd_emulate_handler();
+void int13_hd_emulate_handler();
+
+
+static EmulatedDev __far * get_emulated()
+{
+    uint16_t ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
+    return FAR_POINTER(EmulatedDev, ebda_seg, OFFSET_OF_PRIVATE(emulated_dev));
+}
 
 
 static void wait_ready(uint16_t cmd_port, uint16_t ctrl_port, uint8_t device_reg)
@@ -434,7 +445,7 @@ static bool_t init_hd_params(ATADevice __far * device, uint16_t __far * identity
 
     hd_id = bda_read_byte(BDA_OFFSET_HD_ATTACHED);
 
-    if (hd_id > 0x6f) { // 0x7f - 0x70 are reserved for cd/dvd drives
+    if (hd_id == MAX_HD) {
         return FALSE;
     }
 
@@ -1185,6 +1196,7 @@ uint32_t chs_to_lba(ATADevice __far * device, uint16_t cylinder, uint8_t head, u
 enum {
     HD_ERR_SUCCESS = 0,
     HD_ERR_BAD_COMMAND_OR_PARAM = 1,
+    HD_ERR_WRITE_PROTECTED = 3,
     HD_ERR_READ_FAILED = 4,
     HD_ERR_RESET_FAILED = 5,
 };
@@ -1310,6 +1322,7 @@ static void edd_write_sectors(UserRegs __far * context)
 
 void on_int13(UserRegs __far * context)
 {
+    //todo: call next handler in case of device not found condition
     switch (AH(context)) {
     case INT13_FUNC_EDD_SEEK:
     case INT13_FUNC_EDD_VERIFY:
@@ -1368,43 +1381,6 @@ void on_int13(UserRegs __far * context)
     }
     case INT13_FUNC_READ_SECTORS: {
         ATADevice __far * device = find_hd(DL(context));
-        uint8_t __far * src;
-        uint32_t address;
-        uint n;
-
-        if (!device || !AL(context)) {
-            D_MESSAGE("bad args ax 0x%x dl 0x%x", AX(context), DL(context));
-            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
-            break;
-        }
-
-        address = chs_to_lba(device,(((uint16_t)CL(context) & 0xc0) << 2) | CH(context),
-                             DH(context), CL(context) & 0x3f);
-
-        if (address == BAD_ADDRESS || address + AL(context) > device->sectors) {
-            D_MESSAGE("bad address ax 0x%x dl 0x%x", AX(context), DL(context));
-            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
-            break;
-        }
-
-        src = FAR_POINTER(uint8_t, context->es, BX(context));
-        n = ata_hd_read(device, address, AL(context), src);
-
-        if (n != AL(context)) {
-            D_MESSAGE("read failed");
-            AL(context) = n;
-            int13_error(context, HD_ERR_READ_FAILED);
-            break;
-        }
-
-        int13_success(context);
-        break;
-    }
-    case INT13_FUNC_EDD_WRITE_SECTORS:
-        edd_write_sectors(context);
-        break;
-    case INT13_FUNC_WRITE_SECTORS: {
-        ATADevice __far * device = find_hd(DL(context));
         uint8_t __far * dest;
         uint32_t address;
         uint n;
@@ -1425,7 +1401,44 @@ void on_int13(UserRegs __far * context)
         }
 
         dest = FAR_POINTER(uint8_t, context->es, BX(context));
-        n = ata_hd_write(device, address, AL(context), dest);
+        n = ata_hd_read(device, address, AL(context), dest);
+
+        if (n != AL(context)) {
+            D_MESSAGE("read failed");
+            AL(context) = n;
+            int13_error(context, HD_ERR_READ_FAILED);
+            break;
+        }
+
+        int13_success(context);
+        break;
+    }
+    case INT13_FUNC_EDD_WRITE_SECTORS:
+        edd_write_sectors(context);
+        break;
+    case INT13_FUNC_WRITE_SECTORS: {
+        ATADevice __far * device = find_hd(DL(context));
+        uint8_t __far * src;
+        uint32_t address;
+        uint n;
+
+        if (!device || !AL(context)) {
+            D_MESSAGE("bad args ax 0x%x dl 0x%x", AX(context), DL(context));
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        address = chs_to_lba(device,(((uint16_t)CL(context) & 0xc0) << 2) | CH(context),
+                             DH(context), CL(context) & 0x3f);
+
+        if (address == BAD_ADDRESS || address + AL(context) > device->sectors) {
+            D_MESSAGE("bad address ax 0x%x dl 0x%x", AX(context), DL(context));
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        src = FAR_POINTER(uint8_t, context->es, BX(context));
+        n = ata_hd_write(device, address, AL(context), src);
 
         if (n != AL(context)) {
             D_MESSAGE("write failed");
@@ -1564,32 +1577,30 @@ void on_int13(UserRegs __far * context)
         break;
     }
     case INT13_FUNC_TERM_DISK_EMULATION: {
-        CDBootSpecPacket __far * spec;
-
-        if (DL(context) == 0x7f) {
-            D_MESSAGE("INT13_FUNC_TERM_DISK_EMULATION: all");
-            int13_success(context);
-            return;
-        }
-
-        if (DL(context) < 0xf0 || !find_device(DL(context))) {
-            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
-            return;
-        }
-
-        spec = FAR_POINTER(CDBootSpecPacket, context->ds, SI(context));
-
         switch (AL(context)) {
         case INT13_TERM_DISK_EMULATION_TERM:
-            D_MESSAGE("INT13_FUNC_TERM_DISK_EMULATION: stop");
-        case INT13_TERM_DISK_EMULATION_QUERY:
-            D_MESSAGE("INT13_FUNC_TERM_DISK_EMULATION: query");
-            mem_reset(spec, sizeof(*spec));
-            spec->size = sizeof(*spec);
-            spec->media_type = 0;
-            spec->drive_id = DL(context);
-            int13_success(context);
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
+        case INT13_TERM_DISK_EMULATION_QUERY: {
+            CDBootSpecPacket __far * spec;
+            uint8_t device;
+
+            spec = FAR_POINTER(CDBootSpecPacket, context->ds, SI(context));
+            device = DL(context);
+
+           if (!find_device(device)) {
+               D_MESSAGE("no device 0x%x", device);
+               int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+               break;
+           }
+
+           mem_reset(spec, sizeof(*spec));
+           spec->size = sizeof(*spec);
+           spec->media_type = 0;
+           spec->drive_id = device;
+           int13_success(context);
+           break;
+        }
         default:
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
         }
@@ -1598,6 +1609,482 @@ void on_int13(UserRegs __far * context)
     default:
         D_MESSAGE("not supported 0x%lx", context->eax);
         int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+    }
+}
+
+
+static void fill_emul_spec(CDBootSpecPacket __far * spec, uint8_t device)
+{
+    EmulatedDev __far * emulated = get_emulated();
+
+    mem_reset(spec, sizeof(*spec));
+    spec->size = sizeof(*spec);
+
+    if (device == 0x80) {
+        spec->media_type = 4;
+    } else if (emulated->fd_type == 2) {
+        spec->media_type = 1;
+    } else if (emulated->fd_type == 4) {
+        spec->media_type = 2;
+    } else {
+        spec->media_type = 3;
+    }
+
+    spec->media_type |= (1 << 6); // ATAPI
+    spec->drive_id = device;
+    spec->disk_image_lba = emulated->image_lba;
+    spec->int13_f8_ch = emulated->cylinders - 1;
+    spec->int13_f8_cl = (((emulated->cylinders - 1) >> 2) & 0xc0) | emulated->sec_per_track;
+    spec->int13_f8_dh = emulated->heads - 1;
+
+}
+
+
+static uint emulate_read_sectors(uint8_t dev_id, uint64_t start, uint8_t count, void __far * dest)
+{
+    EDDPacket packet;
+    uint16_t packet_ptr;
+    bool_t ok;
+
+    packet_ptr = (uint16_t)&packet;
+    packet.packet_size = sizeof(packet);
+    packet._0 = 0;
+    packet.count = count;
+    packet._1 = 0;
+    packet.buf_address = (far_ptr_16_t)dest;
+    packet.block_address = start;
+    packet.flat_buf_address = 0;
+
+    __asm {
+        push ds
+        mov ax, ss
+        mov ds, ax
+        mov si, packet_ptr
+        mov dl, dev_id
+        mov ah, INT13_FUNC_EDD_READ_SECTORS
+        int 0x13
+        pop ds
+        jc failed
+        mov al, 1
+        jmp result
+    failed:
+        mov al, 0
+    result:
+        mov ok, al
+    }
+
+    if (!ok) {
+        count = (packet.count != count) ? packet.count : 0;
+    }
+
+    return count;
+}
+
+
+static uint emulate_read(uint8_t dev_id, uint32_t offset, uint32_t lba, uint count,
+                         uint8_t __far * dest)
+{
+    uint skip = (lba % 4);
+    uint8_t __far * tmp;
+    uint ret = 0;
+    uint full;
+
+    if (skip) {
+        tmp = FAR_POINTER(uint8_t, bda_read_word(BDA_OFFSET_EBDA), OFFSET_OF_PRIVATE(read_buf));
+
+        if (!emulate_read_sectors(dev_id, offset + lba / 4, 1, tmp)) {
+            return 0;
+        }
+
+        ret = MIN(4 - skip, count);
+        mem_copy(dest, tmp + HD_SECTOR_SIZE * skip, ret * HD_SECTOR_SIZE);
+
+        count -= ret;
+        lba += ret;
+        dest += ret * HD_SECTOR_SIZE;
+    }
+
+    full = count / 4;
+
+    if (full) {
+        if (emulate_read_sectors(dev_id, offset + lba / 4, full, dest) != full) {
+            return ret;
+        }
+
+        full *= 4;
+        count -= full;
+        lba += full;
+        dest += full * HD_SECTOR_SIZE;
+        ret += full;
+    }
+
+    if (count) {
+        tmp = FAR_POINTER(uint8_t, bda_read_word(BDA_OFFSET_EBDA), OFFSET_OF_PRIVATE(read_buf));
+
+        if (!emulate_read_sectors(dev_id, offset + lba / 4, 1, tmp)) {
+            return ret;
+        }
+
+        mem_copy(dest, tmp, count * HD_SECTOR_SIZE);
+        ret += count;
+    }
+
+    return ret;
+}
+
+
+uint on_int13_hd_emulate(UserRegs __far * context)
+{
+    switch (AH(context)) {
+    case INT13_FUNC_READ_SECTORS: {
+        EmulatedDev __far * emulated = get_emulated();
+        uint16_t cylinder;
+        uint8_t sector;
+        uint8_t count;
+        uint8_t head;
+        uint32_t lba;
+        uint n;
+
+        if (DL(context) != 0x80) {
+            goto no_dev_emulate;
+        }
+
+        emulated = get_emulated();
+
+        count = AL(context);
+        if (!count) {
+            D_MESSAGE("bad args ax 0x%x", AX(context));
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        cylinder = (((uint16_t)CL(context) & 0xc0) << 2) | CH(context);
+
+        if (cylinder >= emulated->cylinders) {
+            D_MESSAGE("INT13_FUNC_READ_SECTORS: invalid cylinder 0x%x", cylinder);
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        head = DH(context);
+
+        if (head >= emulated->heads) {
+            D_MESSAGE("INT13_FUNC_READ_SECTORS: invalid head 0x%x", head);
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        sector = CL(context);
+
+        if (sector < 1 || sector > emulated->sec_per_track) {
+            D_MESSAGE("INT13_FUNC_READ_SECTORS: invalid sector 0x%x", sector);
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        lba = cylinder;
+        lba = (lba * emulated->heads + head) * emulated->sec_per_track + (sector - 1);
+
+        n = emulate_read(emulated->device_id, emulated->image_lba, lba, count,
+                         FAR_POINTER(void, context->es, BX(context)));
+
+        if (n != count) {
+            D_MESSAGE("read failed");
+            AL(context) = n;
+            int13_error(context, HD_ERR_READ_FAILED);
+            break;
+        }
+
+        int13_success(context);
+        break;
+    }
+    case INT13_FUNC_GET_DRIVE_PARAMETERS: {
+        EmulatedDev __far * dev;
+
+        if (DL(context) != 0x80) {
+            goto no_dev_emulate;
+        }
+
+        dev = get_emulated();
+        AL(context) = 0;
+        CL(context) = (((dev->cylinders - 1) >> 2) & 0xc0) | dev->sec_per_track;
+        CH(context) = dev->cylinders - 1;
+        DH(context) = dev->heads - 1;
+        DL(context) = bda_read_byte(BDA_OFFSET_HD_ATTACHED);
+
+        int13_success(context);
+        break;
+    }
+    case INT13_FUNC_GET_DISK_TYPE: {
+        EmulatedDev __far * dev;
+        uint32_t sectors;
+
+        if (DL(context) != 0x80) {
+            goto no_dev_emulate;
+        }
+
+        dev = get_emulated();
+        sectors = dev->cylinders - 1;
+        sectors = sectors * dev->heads * dev->sec_per_track;
+        AH(context) = 0x03;
+        CX(context) = sectors >> 16;
+        DX(context) = sectors;
+        bda_write_byte(BDA_OFFSET_HD_RESAULT, HD_ERR_SUCCESS);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+
+        break;
+    }
+    case INT13_FUNC_RESET:
+    case INT13_FUNC_DISK_CONTROLLER_RESET:
+        if (DL(context) != 0x80) {
+            goto no_dev_emulate;
+        }
+
+        int13_success(context);
+        break;
+    case INT13_FUNC_WRITE_SECTORS:
+        if (DL(context) != 0x80) {
+            goto no_dev_emulate;
+        }
+
+        int13_error(context, HD_ERR_WRITE_PROTECTED);
+        break;
+    case INT13_FUNC_EDD_INSTALLATION_CHECK:
+    case INT13_FUNC_EDD_READ_SECTORS:
+    case INT13_FUNC_EDD_WRITE_SECTORS:
+    case INT13_FUNC_EDD_VERIFY:
+    case INT13_FUNC_EDD_SEEK:
+    case INT13_FUNC_EDD_GET_DRIVE_PARAMS:
+        if (DL(context) != 0x80) {
+            goto no_dev_emulate;
+        }
+
+        D_MESSAGE("edd is not supported for the emulate device 0x%x", AH(context));
+        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+        break;
+    case INT13_FUNC_TERM_DISK_EMULATION: {
+        CDBootSpecPacket __far * spec;
+        uint8_t device;
+
+        spec = FAR_POINTER(CDBootSpecPacket, context->ds, SI(context));
+        device = DL(context);
+
+        switch (AL(context)) {
+        case INT13_TERM_DISK_EMULATION_TERM:
+            if (device != 0x80 && device != 0x7f) {
+                goto no_dev_emulate;
+            }
+
+            device = 0x80;
+            fill_emul_spec(spec, device);
+            ata_stop_emulation();
+            int13_success(context);
+            break;
+        case INT13_TERM_DISK_EMULATION_QUERY: {
+            if (device != 0x80) {
+                goto no_dev_emulate;
+            }
+
+            fill_emul_spec(spec, device);
+            int13_success(context);
+            break;
+        }
+        default:
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+        }
+        break;
+    }
+    default:
+        D_MESSAGE("unhandled function 0x%x", AH(context));
+        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+    }
+
+    return INT13_HANDLED;
+
+no_dev_emulate:
+    if ((DL(context) & 0x80) && (DL(context) & ~0x80) < MAX_HD) {
+        return INT13_DEC_AND_NEXT;
+    } else {
+        return INT13_CALL_NEXT;
+    }
+}
+
+
+uint on_int13_fd_emulate(UserRegs __far * context)
+{
+    switch (AH(context)) {
+    case INT13_FUNC_READ_SECTORS: {
+        EmulatedDev __far * emulated = get_emulated();
+        uint8_t cylinder;
+        uint8_t sector;
+        uint8_t count;
+        uint8_t head;
+        uint32_t lba;
+        uint n;
+
+        if (DL(context)) {
+            goto no_dev_emulate;
+        }
+
+        count = AL(context);
+
+        if (!count || count > 36) {
+            D_MESSAGE("INT13_FUNC_READ_SECTORS: invalid sector count 0x%x", count);
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        cylinder = CH(context);
+
+        if (cylinder >= emulated->cylinders) {
+            D_MESSAGE("INT13_FUNC_READ_SECTORS: invalid cylinder 0x%x", cylinder);
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        head = DH(context);
+
+        if (head >= emulated->heads) {
+            D_MESSAGE("INT13_FUNC_READ_SECTORS: invalid head 0x%x", head);
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        sector = CL(context);
+
+        if (sector < 1 || sector > emulated->sec_per_track) {
+            D_MESSAGE("INT13_FUNC_READ_SECTORS: invalid sector 0x%x", sector);
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        lba = cylinder;
+        lba = (lba * emulated->heads + head) * emulated->sec_per_track + (sector - 1);
+
+        if (lba + count > emulated->sectors) {
+            D_MESSAGE("INT13_FUNC_READ_SECTORS: bad range lba 0x%lx count 0x%x sectors 0x%lx",
+                     sector, count, emulated->sectors);
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
+        }
+
+        n = emulate_read(emulated->device_id, emulated->image_lba, lba, count,
+                         FAR_POINTER(void, context->es, BX(context)));
+
+        if (n != count) {
+            D_MESSAGE("read failed");
+            AL(context) = n;
+            int13_error(context, HD_ERR_READ_FAILED);
+            break;
+        }
+
+        int13_success(context);
+        break;
+    }
+    case INT13_FUNC_GET_DRIVE_PARAMETERS: {
+        EmulatedDev __far * dev;
+
+        if (DL(context)) {
+            goto no_dev_emulate;
+        }
+
+        dev = get_emulated();
+        AL(context) = 0;
+        BH(context) = 0;
+        BL(context) = dev->fd_type;
+
+        CL(context) = dev->sec_per_track;
+        CH(context) = dev->cylinders - 1;
+        DH(context) = dev->heads - 1;
+        DL(context) = 1; // number of fd installed
+
+        context->es = 0;
+        DI(context) = 0;
+
+        int13_success(context);
+        break;
+    }
+    case INT13_FUNC_GET_DISK_TYPE:
+        if (DL(context)) {
+            goto no_dev_emulate;
+        }
+
+        AH(context) = 0x01; // drive present, does not support line change
+        bda_write_byte(BDA_OFFSET_HD_RESAULT, HD_ERR_SUCCESS);
+        context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
+        break;
+    case INT13_FUNC_RESET:
+    case INT13_FUNC_DISK_CONTROLLER_RESET:
+        if (DL(context)) {
+            goto no_dev_emulate;
+        }
+
+        int13_success(context);
+        break;
+    case INT13_FUNC_WRITE_SECTORS:
+        if (DL(context)) {
+            goto no_dev_emulate;
+        }
+
+        int13_error(context, HD_ERR_WRITE_PROTECTED);
+        break;
+    case INT13_FUNC_EDD_INSTALLATION_CHECK:
+    case INT13_FUNC_EDD_READ_SECTORS:
+    case INT13_FUNC_EDD_WRITE_SECTORS:
+    case INT13_FUNC_EDD_VERIFY:
+    case INT13_FUNC_EDD_SEEK:
+    case INT13_FUNC_EDD_GET_DRIVE_PARAMS:
+        if (DL(context)) {
+            goto no_dev_emulate;
+        }
+
+        D_MESSAGE("edd is not supported for the emulate device 0x%x", AH(context));
+        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+        break;
+    case INT13_FUNC_TERM_DISK_EMULATION: {
+        CDBootSpecPacket __far * spec;
+        uint8_t device;
+
+        spec = FAR_POINTER(CDBootSpecPacket, context->ds, SI(context));
+        device = DL(context);
+
+        switch (AL(context)) {
+        case INT13_TERM_DISK_EMULATION_TERM:
+            if (device != 0 && device != 0x7f) {
+                goto no_dev_emulate;
+            }
+
+            device = 0;
+            fill_emul_spec(spec, device);
+            ata_stop_emulation();
+            int13_success(context);
+            break;
+        case INT13_TERM_DISK_EMULATION_QUERY: {
+            if (device != 0) {
+                goto no_dev_emulate;
+            }
+
+            fill_emul_spec(spec, device);
+            int13_success(context);
+            break;
+        }
+        default:
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+        }
+        break;
+    }
+    default:
+        D_MESSAGE("unhandled function 0x%x", AH(context));
+        int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+    }
+
+    return INT13_HANDLED;
+
+no_dev_emulate:
+    if (DL(context) & 0x80) {
+        return INT13_CALL_NEXT;
+    } else {
+        return INT13_DEC_AND_NEXT;
     }
 }
 
@@ -1654,6 +2141,159 @@ uint ata_hd_read(ATADevice __far * device, uint64_t address, uint count,
 
         return ata_pio_cmd_ext(device->cmd_port, device->ctrl_port, &cmd, ata_pio_in);
     }
+}
+
+
+bool_t ata_start_fd_emulation(ATADevice __far * device, uint32_t image_lba, uint type)
+{
+    EmulatedDev __far * emulated_dev;
+    uint8_t hd_attached;
+    uint16_t flags;
+    uint16_t vec_seg;
+    uint16_t vec_offset;
+
+    NO_INTERRUPT();
+
+    if (!ata_is_cdrom(device)) {
+        return FALSE;
+    }
+
+    flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
+
+    if ((flags & (BIOS_FLAGS_FD_EMULATION | BIOS_FLAGS_HD_EMULATION))) {
+        D_MESSAGE("only a single emulatiion is supported");
+        return FALSE;
+    }
+
+    // update BDA_OFFSET_EQUIPMENT, cmos data, etc.
+
+    emulated_dev = get_emulated();
+    emulated_dev->device_id = device->id;
+    emulated_dev->image_lba = image_lba;
+    emulated_dev->heads = 0x02;
+    emulated_dev->cylinders = 0x50;
+
+    switch (type) {
+    case 1:
+        emulated_dev->sec_per_track = 0x0f;
+        emulated_dev->fd_type = 2;
+        break;
+    case 2:
+        emulated_dev->sec_per_track =0x12;
+        emulated_dev->fd_type = 4;
+        break;
+    case 3:
+        emulated_dev->sec_per_track = 0x24;
+        emulated_dev->fd_type = 5;
+        break;
+    default:
+        D_MESSAGE("invalid type");
+        return FALSE;
+    }
+
+    emulated_dev->sectors = emulated_dev->cylinders * emulated_dev->heads *
+                            emulated_dev->sec_per_track;
+
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), flags | BIOS_FLAGS_FD_EMULATION);
+
+    get_int_vec(0x13, &vec_seg, &vec_offset);
+    ebda_write_word(OFFSET_OF_PRIVATE(int13_emu_next_seg), vec_seg);
+    ebda_write_word(OFFSET_OF_PRIVATE(int13_emu_next_offset), vec_offset);
+    set_int_vec(0x13, get_cs(), FUNC_OFFSET(int13_fd_emulate_handler));
+
+    return TRUE;
+}
+
+
+typedef _Packed struct PartitionInfo {
+    uint8_t status; // 0x80 = bootable
+    uint8_t start[3];
+    uint8_t type;
+    uint8_t end[3];
+    uint32_t start_lba;
+    uint32_t sectors;
+} PartitionInfo;
+
+
+bool_t ata_start_hd_emulation(ATADevice __far * device, uint32_t image_lba, uint8_t __far * mbr)
+{
+    EmulatedDev __far * emulated_dev;
+    PartitionInfo __far * part;
+    uint8_t hd_attached;
+    uint16_t flags;
+    uint16_t vec_seg;
+    uint16_t vec_offset;
+
+    NO_INTERRUPT();
+
+    if (!ata_is_cdrom(device)) {
+        return FALSE;
+    }
+
+    flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
+
+    if ((flags & (BIOS_FLAGS_HD_EMULATION | BIOS_FLAGS_FD_EMULATION ))) {
+        D_MESSAGE("only a single emulatiion is supported");
+        return FALSE;
+    }
+
+    hd_attached = bda_read_byte(BDA_OFFSET_HD_ATTACHED);
+
+    if (hd_attached == MAX_HD) {
+        return FALSE;
+    }
+
+    if (mbr[0x1fe] != 0x55 || mbr[0x1ff] != 0xaa) {
+        D_MESSAGE("invalid mbr signature");
+        return FALSE;
+    }
+
+    part = (PartitionInfo __far *)(mbr + 0x1be);
+
+    D_MESSAGE("emulated_dev is not fully initialized");
+    freeze();
+
+    emulated_dev = get_emulated();
+    emulated_dev->device_id = device->id;
+    emulated_dev->image_lba = image_lba;
+
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), flags | BIOS_FLAGS_HD_EMULATION);
+    bda_write_byte(BDA_OFFSET_HD_ATTACHED, hd_attached + 1);
+
+    get_int_vec(0x13, &vec_seg, &vec_offset);
+    ebda_write_word(OFFSET_OF_PRIVATE(int13_emu_next_seg), vec_seg);
+    ebda_write_word(OFFSET_OF_PRIVATE(int13_emu_next_offset), vec_offset);
+    set_int_vec(0x13, get_cs(), FUNC_OFFSET(int13_hd_emulate_handler));
+
+    return TRUE;
+}
+
+
+void ata_stop_emulation()
+{
+    EmulatedDev __far * emulated_dev;
+    ATADevice __far * device;
+    uint16_t flags;
+
+    NO_INTERRUPT();
+
+    flags = ebda_read_word(OFFSET_OF_PRIVATE(bios_flags));
+
+    if (!(flags & (BIOS_FLAGS_HD_EMULATION | BIOS_FLAGS_FD_EMULATION))) {
+        return;
+    }
+
+    if ((flags & BIOS_FLAGS_HD_EMULATION)) {
+        uint8_t hd_attached;
+        hd_attached = bda_read_byte(BDA_OFFSET_HD_ATTACHED);
+        bda_write_byte(BDA_OFFSET_HD_ATTACHED, hd_attached - 1);
+    }
+
+    flags &= ~(BIOS_FLAGS_HD_EMULATION | BIOS_FLAGS_FD_EMULATION);
+    ebda_write_word(OFFSET_OF_PRIVATE(bios_flags), flags);
+
+    set_int_vec(0x13, ebda_read_word(OFFSET_OF_PRIVATE(int13_emu_next_seg)),
+                      ebda_read_word(OFFSET_OF_PRIVATE(int13_emu_next_offset)));
 }
 
 
