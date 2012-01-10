@@ -1325,7 +1325,7 @@ static void term_put_char_cb(void __far * opaque, char val)
 }
 
 
-void term_printf(const char* format, ...)
+void term_printf(const char __far * format, ...)
 {
     uint8_t __far * args = (uint8_t __far *)&format;
     format_str(term_put_char_cb, NULL, format, SKIP_STACK_ARG(const char __far *, args));

@@ -121,8 +121,10 @@ static void hd_boot()
 
         if (read_word(0, 0x7c00 + 510) == 0xaa55) {
             __asm {
-                cli
                 xor ax, ax
+                xor bx, bx
+                xor cx, cx
+                xor dx, dx
                 mov ds, ax
                 mov es, ax
                 mov fs, ax
@@ -130,6 +132,7 @@ static void hd_boot()
                 mov ss, ax
                 mov sp, 0x7c00
                 mov dl, hd_id
+                sti
                 db 0xea
                 dw 0x7c00, 0x0000
             }

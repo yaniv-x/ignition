@@ -70,7 +70,7 @@ void register_interrupt_handler(uint line, int_cb_t cb, uint opaque);
 void unregister_interrupt_handler(uint line, int_cb_t cb, uint opaque);
 void get_int_vec(uint8_t index, uint16_t __far * seg, uint16_t __far * offset);
 void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset);
-void term_printf(const char* format, ...);
+void term_printf(const char __far * format, ...);
 
 bool_t ata_is_cdrom(ATADevice __far * device);
 bool_t ata_is_hd(ATADevice __far * device);
