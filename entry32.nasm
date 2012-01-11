@@ -37,10 +37,6 @@ extern _pcibios_service
 
 
 start:
-    mov al, POST_CODE_START32
-    mov dx, IO_PORT_POST_CODE
-    out dx, al
-
     mov ax, DATA_SEGMENT_SELECTOR
     mov ds, ax
     mov es, ax

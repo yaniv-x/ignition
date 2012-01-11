@@ -86,10 +86,6 @@ entry:
     dd 0
 
 .back_from_32bit:
-    mov al, POST_CODE_BACK
-    mov dx, IO_PORT_POST_CODE
-    out dx, al
-
     mov edi, BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA
     xor eax, eax
     mov ax, [edi]
