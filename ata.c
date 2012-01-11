@@ -122,6 +122,7 @@
 #define CD_SECTOR_SIZE 2048
 #define MAX_HD 0x70 // id 0-0x6f, 0x7f - 0x70 are reserved for cd/dvd drives.
                     // in reality max hd is limit by MAX_ATA_DEVICES
+#define FIRST_CD_DEVICE_ID 0xf0
 
 #define ATAPI_PACKET_SIZE_MAX 16
 #define ATAPI_PIO_MAX_TRANSFER 0xfffe
@@ -581,7 +582,7 @@ static bool_t init_cdrom_params(ATADevice __far * device, uint16_t __far * ident
         return FALSE;
     }
 
-    device->id = 0xf0 | cd_id;
+    device->id = FIRST_CD_DEVICE_ID | cd_id;
     ebda_write_byte(OFFSET_OF_PRIVATE(next_cd_id), cd_id + 1);
 
     return TRUE;
@@ -1611,26 +1612,27 @@ void on_int13(UserRegs __far * context)
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
             break;
         case INT13_TERM_DISK_EMULATION_QUERY: {
-            CDBootSpecPacket __far * spec;
-            uint8_t device;
 
-            spec = FAR_POINTER(CDBootSpecPacket, context->ds, SI(context));
-            device = DL(context);
+            // the following block solve inf reset loop while booting from winxp
+            // installation cd. not sure whether it is the correct handling or just
+            // a workaround.  need to test it on a physical machine (booting from hd,
+            // on physical machine, HD_ERR_BAD_COMMAND_OR_PARAM is returned.
+            if (DL(context) >= FIRST_CD_DEVICE_ID && find_device(DL(context))) {
+                CDBootSpecPacket __far * spec;
 
-           if (!find_device(device)) {
-               D_MESSAGE("no device 0x%x", device);
-               int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
-               break;
-           }
+                spec = FAR_POINTER(CDBootSpecPacket, context->ds, SI(context));
+                mem_reset(spec, sizeof(*spec));
+                spec->size = sizeof(*spec);
+                spec->drive_id = DL(context);
+                int13_success(context);
+                break;
+            }
 
-           mem_reset(spec, sizeof(*spec));
-           spec->size = sizeof(*spec);
-           spec->media_type = 0;
-           spec->drive_id = device;
-           int13_success(context);
-           break;
+            int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
+            break;
         }
         default:
+            D_MESSAGE("invalid command 0x%x", AX(context));
             int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
         }
         break;
