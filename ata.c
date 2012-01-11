@@ -181,6 +181,16 @@ typedef _Packed struct FixDiskParamTable{ /*translated*/
 } FixDiskParamTable;
 
 
+typedef _Packed struct HDCmosParam {
+    uint16_t cylinders;
+    uint8_t heads;
+    uint16_t precompensation;
+    uint8_t control;
+    uint16_t landing_zone;
+    uint8_t sectors;
+} HDCmosParam;
+
+
 void int13_handler();
 void int13_fd_emulate_handler();
 void int13_hd_emulate_handler();
@@ -463,6 +473,8 @@ static bool_t init_hd_params(ATADevice __far * device, uint16_t __far * identity
     }
 
     if (fdpt) {
+        HDCmosParam cmos_param;
+
         ebda_write_byte(EBDA_OFFSET_HD_COUNT, ebda_read_word(EBDA_OFFSET_HD_COUNT) + 1);
 
         fdpt->logi_cylinders = device->logi_cylinders;
@@ -474,8 +486,25 @@ static bool_t init_hd_params(ATADevice __far * device, uint16_t __far * identity
         fdpt->physi_cylinders = device->physi_cylinders;
         fdpt->physi_heads = device->physi_heads;
         fdpt->lending_zone = 0xffff;
-        fdpt->logi_sec_per_track = 63;
+        fdpt->logi_sec_per_track = SECTORS_PER_TRACK;
         fdpt->checksum = checksum8(fdpt, sizeof(*fdpt));
+
+        cmos_param.cylinders = fdpt->logi_cylinders;
+        cmos_param.heads = fdpt->logi_heads;
+        cmos_param.precompensation = fdpt->precompensation;
+        cmos_param.control = fdpt->drive_control_byte;
+        cmos_param.landing_zone = fdpt->lending_zone;
+        cmos_param.sectors = fdpt->logi_sec_per_track;
+
+        if (hd_id == 1) {
+            rtc_write(CMOS_OFFSET_HD_TYPE, rtc_read(CMOS_OFFSET_HD_TYPE) | 0x0f);
+            rtc_write(CMOS_OFFSET_HD1_EXT_TYPE, 47);
+            rtc_write_buf(CMOS_OFFSET_HD1_PARAMS, &cmos_param, sizeof(cmos_param));
+        } else {
+            rtc_write(CMOS_OFFSET_HD_TYPE , rtc_read(CMOS_OFFSET_HD_TYPE) | 0xf0);
+            rtc_write(CMOS_OFFSET_HD0_EXT_TYPE, 47);
+            rtc_write_buf(CMOS_OFFSET_HD0_PARAMS, &cmos_param, sizeof(cmos_param));
+        }
     }
 
     return TRUE;
@@ -2299,6 +2328,17 @@ void ata_stop_emulation()
 
 void ata_init()
 {
+    HDCmosParam cmos_param;
+
+    rtc_write(CMOS_OFFSET_HD_TYPE, 0); // no hd
+
+    // although not valid, resetting all hd data
+    rtc_write(CMOS_OFFSET_HD0_EXT_TYPE, 0);
+    rtc_write(CMOS_OFFSET_HD1_EXT_TYPE, 0);
+    mem_reset(&cmos_param, sizeof(cmos_param));
+    rtc_write_buf(CMOS_OFFSET_HD0_PARAMS, &cmos_param, sizeof(cmos_param));
+    rtc_write_buf(CMOS_OFFSET_HD1_PARAMS, &cmos_param, sizeof(cmos_param));
+
     set_int_vec(0x13, get_cs(), FUNC_OFFSET(int13_handler));
     pci_for_each(ata_pci_cb, NULL);
 }

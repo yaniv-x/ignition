@@ -509,18 +509,28 @@ static void setup_rtc_irq()
 }
 
 
-static void rtc_write(uint index, uint8_t val)
+void rtc_write(uint index, uint8_t val)
 {
-    outb(IO_PORT_RTC_INDEX, index | ebda_read_byte(OFFSET_OF(EBDA, private) +
-                                                   OFFSET_OF(EBDAPrivate, nmi_mask)));
+    outb(IO_PORT_RTC_INDEX, index | ebda_read_byte(OFFSET_OF_PRIVATE(nmi_mask)));
     outb(IO_PORT_RTC_DATA, val);
 }
 
 
-static uint8_t rtc_read(uint index)
+void rtc_write_buf(uint index, void __far * buf, uint size)
 {
-    outb(IO_PORT_RTC_INDEX, index | ebda_read_byte(OFFSET_OF(EBDA, private) +
-                                                   OFFSET_OF(EBDAPrivate, nmi_mask)));
+    uint8_t __far * byte_ptr = buf;
+
+    ASSERT(index > RTC_REGD && index + size > index && index + size <= 128);
+
+    while (size--) {
+        rtc_write(index++, *byte_ptr++);
+    }
+}
+
+
+uint8_t rtc_read(uint index)
+{
+    outb(IO_PORT_RTC_INDEX, index | ebda_read_byte(OFFSET_OF_PRIVATE(nmi_mask)));
     return inb(IO_PORT_RTC_DATA);
 }
 
@@ -1016,7 +1026,7 @@ void on_int1a(UserRegs __far * context)
             break;
         }
 
-        CH(context) = rtc_read(RTC_CENTURY);
+        CH(context) = rtc_read(CMOS_OFFSET_ISA_CENTURY);
         CL(context) = rtc_read(RTC_YEAR);
         DH(context) = rtc_read(RTC_MOUNTH);
         DL(context) = rtc_read(RTC_DAY_OF_MOUNTH);
@@ -1030,7 +1040,7 @@ void on_int1a(UserRegs __far * context)
 
         rtc_write(RTC_REGB, regb);
 
-        rtc_write(RTC_CENTURY, CH(context));
+        rtc_write(CMOS_OFFSET_ISA_CENTURY, CH(context));
         rtc_write(RTC_YEAR, CL(context));
         rtc_write(RTC_MOUNTH, DH(context));
         rtc_write(RTC_DAY_OF_MOUNTH, DL(context));

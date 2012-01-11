@@ -63,6 +63,10 @@ void ebda_write_byte(uint16_t offset, uint8_t val);
 void ebda_write_word(uint16_t offset, uint16_t val);
 void ebda_write_dword(uint16_t offset, uint32_t val);
 
+uint8_t rtc_read(uint index);
+void rtc_write(uint index, uint8_t val);
+void rtc_write_buf(uint index, void __far * buf, uint size);
+
 void delay(uint32_t milisec);
 void beep();
 uint8_t is_hard_int_context();

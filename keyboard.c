@@ -1152,6 +1152,7 @@ static void init_mouse()
 
     bda_write_word(BDA_OFFSET_EQUIPMENT,
                    bda_read_word(BDA_OFFSET_EQUIPMENT) | (1 << BDA_EQUIPMENT_MOUSE_BIT));
+    rtc_write(CMOS_OFFSET_EQUIPMENT_BYTE, rtc_read(CMOS_OFFSET_EQUIPMENT_BYTE) | (1 << 2));
 
     set_int_vec(0x74, get_cs(), FUNC_OFFSET(mouse_interrupt_handler));
     outb(IO_PORT_PIC2 + 1, (inb(IO_PORT_PIC2 + 1) & ~(1 << PIC2_MOUSE_PIN)));

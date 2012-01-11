@@ -153,6 +153,20 @@ static EBDAPrivate* get_ebda_private()
 }
 
 
+static void rtc_write(uint index, uint8_t val)
+{
+    outb(IO_PORT_RTC_INDEX, index | RTC_NMI_MASK);
+    outb(IO_PORT_RTC_DATA, val);
+}
+
+
+static uint8_t rtc_read(uint index)
+{
+    outb(IO_PORT_RTC_INDEX, index | RTC_NMI_MASK);
+    return inb(IO_PORT_RTC_DATA);
+}
+
+
 static void detect_platform()
 {
     uint16_t vendor_id;
@@ -824,6 +838,7 @@ static inline void init_cpu()
 
     if ((edx & (1 << CPU_FEATURE_FPU_BIT))) {
         *BDA_WORD(BDA_OFFSET_EQUIPMENT) |= (1 << BDA_EQUIPMENT_COPROCESSOR_BIT);
+        rtc_write(CMOS_OFFSET_EQUIPMENT_BYTE, rtc_read(CMOS_OFFSET_EQUIPMENT_BYTE) | (1 << 1));
     }
 
     *EBDA_BYTE(EBDA_OFFSET_CACHE_CONTROL) = (get_cr0() & CR0_CD) ? 1 : 0;
@@ -832,20 +847,6 @@ static inline void init_cpu()
         platform_debug_string(__FUNCTION__ ": address lines conflict");
         freeze();
     }
-}
-
-
-static void rtc_write(uint index, uint8_t val)
-{
-    outb(IO_PORT_RTC_INDEX, index | RTC_NMI_MASK);
-    outb(IO_PORT_RTC_DATA, val);
-}
-
-
-static uint8_t rtc_read(uint index)
-{
-    outb(IO_PORT_RTC_INDEX, index | RTC_NMI_MASK);
-    return inb(IO_PORT_RTC_DATA);
 }
 
 
@@ -864,6 +865,9 @@ static inline void init_rtc()
     rtc_read(0x0d);
 
     // bios periodic timer rate is 1024hz
+
+    rtc_write(CMOS_OFFSET_ISA_CENTURY, 0x20); // IBM
+    rtc_write(CMOS_OFFSET_PS2_CENTURY, 0x20); // PS2
 }
 
 
@@ -972,15 +976,14 @@ static inline void init_mem()
     *BDA_WORD(BDA_OFFSET_MAIN_MEM_SIZE) = BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB;
 
     //640k base memory
-    rtc_write(0x15, BASE_MEMORY_SIZE_KB);
-    rtc_write(0x16, BASE_MEMORY_SIZE_KB >> 8);
+    rtc_write(CMOS_OFFSET_BASE_MEM_LOW, BASE_MEMORY_SIZE_KB);
+    rtc_write(CMOS_OFFSET_BASE_MEM_HIGH, BASE_MEMORY_SIZE_KB >> 8);
 
-    //extended memory
     extended_memory_kb = MIN(globals->above_1m_pages << 2, 63 * KB);
-    rtc_write(0x17, extended_memory_kb);
-    rtc_write(0x18, extended_memory_kb >> 8);
-    rtc_write(0x30, extended_memory_kb);
-    rtc_write(0x31, extended_memory_kb >> 8);
+    rtc_write(CMOS_OFFSET_EXT_MEM_LOW_0, extended_memory_kb);
+    rtc_write(CMOS_OFFSET_EXT_MEM_HIGH_0, extended_memory_kb >> 8);
+    rtc_write(CMOS_OFFSET_EXT_MEM_LOW_1, extended_memory_kb);
+    rtc_write(CMOS_OFFSET_EXT_MEM_HIGH_1, extended_memory_kb >> 8);
 
     setup_mttr();
 }
@@ -1271,6 +1274,11 @@ static void init()
     ASSERT(OFFSET_OF(EBDAPrivate, bios_flags) == PRIVATE_OFFSET_FLAGS);
     ASSERT(OFFSET_OF(EBDAPrivate, int13_emu_next_seg) == PRIVATE_OFFSET_INT13_EMU_SEG);
     ASSERT(OFFSET_OF(EBDAPrivate, int13_emu_next_offset) == PRIVATE_OFFSET_INT13_EMU_OFFSET);
+
+    rtc_write(CMOS_OFFSET_DIAGNOSTIC, 0);       // all is ok
+    rtc_write(CMOS_OFFSET_SHUTDOWN_STASUS, 0);  // soft reset
+    rtc_write(CMOS_OFFSET_FLOPPY_TYPE, 0);      // no floppy
+    rtc_write(CMOS_OFFSET_EQUIPMENT_BYTE, 0);   // reset equipment
 
     init_cpu();
     init_rtc();
