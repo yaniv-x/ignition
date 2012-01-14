@@ -40,7 +40,6 @@ _call_rom_init:
     mov bp, sp
     mov ah, [bp + 8]
     mov al, [bp + 10]
-    shl al, 3
     PUSH_ALL
     call far [bp + 4]
     POP_ALL
