@@ -547,7 +547,7 @@ static void init_platform()
 }
 
 
-static void pci_asign_io()
+static void pci_assign_io()
 {
     uint32_t address = PCI_BASE_IO_ADDRESS;
 
@@ -581,7 +581,7 @@ static inline PCIBarResouce* pci_first_unmapped(PCIBarResouce* bar_list)
 }
 
 
-static int pci_asign_mem32(PCIBarResouce* bar_list)
+static int pci_assign_mem32(PCIBarResouce* bar_list)
 {
     uint32_t pci_hole_start = globals->pci32_hole_start;
     uint32_t pci_end_address = globals->pci32_hole_end;
@@ -632,7 +632,7 @@ static int pci_asign_mem32(PCIBarResouce* bar_list)
 }
 
 
-static void pci_asign_mem64()
+static void pci_assign_mem64()
 {
     PCIBarResouce* item = (PCIBarResouce*)globals->mem64_bars;
     uint64_t pci_hole_start;
@@ -680,7 +680,6 @@ static void pci_activation()
         PCIDeviceType type;
         uint bus = descriptor->bus;
         uint device = descriptor->device;
-        uint8_t interrupt_pin;
 
         pci_enable_device(bus, device, NULL);
 
@@ -697,12 +696,6 @@ static void pci_activation()
             }
             break;
         }
-
-        interrupt_pin = pci_read_8(bus, device, PCI_OFFSET_INTERRUPT_PIN);
-
-        if (interrupt_pin) {
-            post_and_halt(POST_CODE_TODO_UPDATE_INT_LINE);
-        }
     }
 }
 
@@ -711,14 +704,14 @@ static void init_pci()
 {
     pci_for_each(pci_disable_device, NULL);
     pci_for_each(pci_collect_resources, NULL);
-    pci_asign_io();
+    pci_assign_io();
 
-    if (!pci_asign_mem32((PCIBarResouce*)globals->mem_bars)) {
-        if (!pci_asign_mem32((PCIBarResouce*)globals->mem32_bars)) {
+    if (!pci_assign_mem32((PCIBarResouce*)globals->mem_bars)) {
+        if (!pci_assign_mem32((PCIBarResouce*)globals->mem32_bars)) {
             post_and_halt(POST_CODE_PCI_OOM);
         }
 
-        pci_asign_mem64();
+        pci_assign_mem64();
     }
 
     pci_activation();
@@ -743,8 +736,9 @@ static int pci_add_routing(uint32_t bus, uint32_t device, void __far * opaque)
     ent->int_b_link = index * 4 + 1;
     ent->int_c_link = index * 4 + 2;
     ent->int_d_link = index * 4 + 3;
-    ent->int_a_bitmap = NOX_PCI_IRQ_LINES_MASK;
-    ent->int_b_bitmap = ent->int_a_bitmap;
+    ent->int_a_bitmap = (device == PM_CONTROLLER_SLOT) ? (1 << PM_IRQ_LINE) :
+                                                         NOX_PCI_IRQ_LINES_MASK;
+    ent->int_b_bitmap = NOX_PCI_IRQ_LINES_MASK;
     ent->int_c_bitmap = ent->int_b_bitmap;
     ent->int_d_bitmap = ent->int_c_bitmap;
     ent->slot = 0;
@@ -756,12 +750,88 @@ static int pci_add_routing(uint32_t bus, uint32_t device, void __far * opaque)
 }
 
 
+static uint get_pci_irq_mask(uint bus, uint device, uint pin)
+{
+    PrivateData* p = (PrivateData*)(globals->platform_ram + PLATFORM_BIOS_DATA_START);
+    uint i;
+
+    for (i = 0; i < p->irq_routing_table_size; i++) {
+        if (p->irq_routing_table[i].bus != bus || (p->irq_routing_table[i].device >> 3) != device) {
+            continue;
+        }
+
+        switch (pin) {
+        case 1:
+            return p->irq_routing_table[i].int_a_bitmap;
+        case 2:
+            return p->irq_routing_table[i].int_b_bitmap;
+        case 3:
+            return p->irq_routing_table[i].int_c_bitmap;
+        case 4:
+            return p->irq_routing_table[i].int_d_bitmap;
+        default:
+            bios_error(BIOS_ERROR_PCI_INVALID_INTERRUPT_PIN);
+        }
+    }
+
+    bios_error(BIOS_ERROR_PCI_NO_IRQ_MASK);
+
+    return 0;
+}
+
+
+static void pci_assign_irq()
+{
+    PCIDevDescriptor* descriptor = (PCIDevDescriptor*)globals->activation_list;
+    uint irq = 0;
+
+    for (; descriptor; descriptor = descriptor->next) {
+        PCmdSetIRQ args;
+        uint mask;
+
+        args.bus = descriptor->bus;
+        args.device = descriptor->device;
+        args.pin = pci_read_8(args.bus, args.device, PCI_OFFSET_INTERRUPT_PIN);
+
+        if (!args.pin) {
+            pci_write_8(args.bus, args.device, PCI_OFFSET_INTERRUPT_LINE, 0);
+            continue;
+        }
+
+        if (args.pin > 4) {
+            bios_error(BIOS_ERROR_PCI_INVALID_INTERRUPT_PIN);
+        }
+
+        mask = get_pci_irq_mask(args.bus, args.device, args.pin);
+
+        ASSERT(mask);
+
+        do {
+            irq = (irq + 1) % (PIC_NUM_LINES * PIC_NUM_CHIPS);
+        } while (!(mask & (1 << irq)));
+
+        args.irq = irq;
+        args.pin += 0xa - 1;
+        args.ret_val = 0;
+        platform_command(PALTFORM_CMD_SET_PCI_IRQ, &args, sizeof(args));
+
+        if (!args.ret_val) {
+            D_MESSAGE("a %u", args.ret_val);
+            bios_error(BIOS_ERROR_PCI_CONFIG_IRQ_FAILED);
+        }
+
+        pci_write_8(args.bus, args.device, PCI_OFFSET_INTERRUPT_LINE, irq);
+    }
+}
+
+
 static void init_irq_routing()
 {
     PrivateData* p = (PrivateData*)(globals->platform_ram + PLATFORM_BIOS_DATA_START);
     p->irq_routing_table_size = 0;
 
     pci_for_each(pci_add_routing, NULL);
+    pci_assign_irq();
 }
 
 
@@ -799,8 +869,12 @@ static void init_globals()
 
 static void reset_platform_io()
 {
+    PrivateData* p;
+
     globals->platform_io = pci_read_32(0, 0, PCI_OFFSET_BAR_0) & PCI_BAR_IO_ADDRESS_MASK;
     globals->platform_ram = pci_read_32(0, 0, PCI_OFFSET_BAR_0 + 4) & PCI_BAR_MEM_ADDRESS_MASK;
+    p = (PrivateData*)(globals->platform_ram + PLATFORM_BIOS_DATA_START);
+    mem_reset(p, sizeof(*p));
 }
 
 
@@ -1274,6 +1348,7 @@ static void init()
     ASSERT(OFFSET_OF(EBDAPrivate, bios_flags) == PRIVATE_OFFSET_FLAGS);
     ASSERT(OFFSET_OF(EBDAPrivate, int13_emu_next_seg) == PRIVATE_OFFSET_INT13_EMU_SEG);
     ASSERT(OFFSET_OF(EBDAPrivate, int13_emu_next_offset) == PRIVATE_OFFSET_INT13_EMU_OFFSET);
+    ASSERT(sizeof(PrivateData) <= PLATFORM_BIOS_DATA_SIZE);
 
     rtc_write(CMOS_OFFSET_DIAGNOSTIC, 0);       // all is ok
     rtc_write(CMOS_OFFSET_SHUTDOWN_STASUS, 0);  // soft reset

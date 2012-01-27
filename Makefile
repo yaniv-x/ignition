@@ -10,7 +10,7 @@ C_SOURCES = $(C_SOURCES_16) $(C_SOURCES_32)
 C_OBJECTS_16 = $(C_SOURCES_16:%.c=%.o)
 C_OBJECTS_32 = $(C_SOURCES_32:%.c=%.o)
 
-$(C_OBJECTS_16) : C_COMPILE = $(CC) -q -6 -ecc -zls -ms -zc -zu -s -os -we
+$(C_OBJECTS_16) : C_COMPILE = $(CC) -q -6 -ecc -zls -ms -zc -zu -s -os -we -g=DGROUP -nt=_TEXT
 $(C_OBJECTS_32) : C_COMPILE = $(CC386) -q -6 -ecc -zls -s -os -we
 
 NASM_SOURCES_16 = entry.nasm asm_utils.nasm

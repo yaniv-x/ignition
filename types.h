@@ -167,7 +167,7 @@ typedef _Packed struct EBDAPrivate {
 } EBDAPrivate;
 
 
-typedef struct PrivateData {
+typedef _Packed struct PrivateData {
     uint8_t irq_routing_table_size;
     IRQOption irq_routing_table[32];
 } PrivateData;

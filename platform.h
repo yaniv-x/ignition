@@ -37,6 +37,12 @@
                   ptr, SIZE_OF(PrivateData, member));                           \
 }
 
+#define BIOS_PRIVATE_WRITE(member, ptr) {                                       \
+    ASSERT(sizeof(*ptr) == SIZE_OF(PrivateData, member));                       \
+    platform_write(PLATFORM_BIOS_DATA_START + OFFSET_OF(PrivateData, member),   \
+                  ptr, SIZE_OF(PrivateData, member));                           \
+}
+
 void platform_report_error(uint32_t code);
 void platform_read(uint32_t offset, void __far * in_dest, uint32_t size);
 void platform_write(uint32_t offset, const void __far * in_src, uint32_t size);

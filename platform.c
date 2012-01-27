@@ -107,6 +107,7 @@ void platform_command(uint8_t cmd, void __far * args, uint32_t args_size)
 
     platform_write(PLATFORM_CMD_BUF_START, args, args_size);
     outb(get_port() + PLATFORM_IO_CMD, cmd);
+    platform_read(PLATFORM_CMD_BUF_START, args, args_size);
 
     put_eflags(eflags);
 }

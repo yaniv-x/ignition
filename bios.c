@@ -931,14 +931,7 @@ void on_int15(UserRegs __far * context)
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
         break;
-    case 0x53:
-        switch (AL(context)) {
-        case 0x00://apm
-        case 0x04:// apm
-            break;
-        default:
-            D_MESSAGE("not supported 0x%lx", context->eax);
-        }
+    case INT15_FUNC_APM:
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
         break;

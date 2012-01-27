@@ -293,7 +293,7 @@ void pcibios_set_irq(UserRegs __far * context)
     platform_command(PALTFORM_CMD_SET_PCI_IRQ, &args, sizeof(args));
 
     if (!args.ret_val) {
-        D_MESSAGE("cobfugure failed");
+        D_MESSAGE("config failed");
         AH(context) = PCIBIOS_SET_FAILED;
     } else {
         AH(context) = PCIBIOS_SUCCESSFUL;

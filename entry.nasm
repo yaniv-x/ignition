@@ -24,8 +24,8 @@
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 %endif
 
-segment _TEXT class=CODE USE16 align=1 CPU=686
-group DGROUP _TEXT
+segment ENTRY class=CODE USE16 align=1 CPU=686
+group DGROUP ENTRY
 
 %define BIOS16_STACK_BASE 0xfff0
 
@@ -463,5 +463,5 @@ _call32:
     mov eax, cr0
     or eax, CR0_PE
     mov cr0, eax
-    jmp dword CODE_SEGMENT_SELECTOR:BIOS32_START_ADDRESS
+    jmp dword CODE_SEGMENT_SELECTOR:(BIOS32_CODE_SEGMENT << 4)
 

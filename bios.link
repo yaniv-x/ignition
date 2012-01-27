@@ -19,7 +19,7 @@ file lib16/i4d.o
 file lib16/i4m.o
 
 order
-    clname CODE
+    clname CODE segment ENTRY segment _TEXT
     clname DATA
 
 option nodefaultlibs
