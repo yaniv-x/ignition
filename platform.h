@@ -49,6 +49,7 @@ void platform_write(uint32_t offset, const void __far * in_src, uint32_t size);
 void platform_command(uint8_t cmd, void __far * args, uint32_t args_size);
 void platform_debug_string(const char __far * str);
 void platform_printf(const char __far * format, ...);
+uint32_t platform_get_reg(uint8_t reg_index);
 
 #endif
 

@@ -113,6 +113,24 @@ void platform_command(uint8_t cmd, void __far * args, uint32_t args_size)
 }
 
 
+uint32_t platform_get_reg(uint8_t reg_index)
+{
+    uint32_t eflags = get_eflags();
+    uint32_t ret;
+
+    CLI();
+
+    ASSERT(reg_index < PLATFORM_REG_NUM_REGS);
+
+    outb(get_port() + PLATFORM_IO_SELECT, reg_index);
+    ret = ind(get_port() + PLATFORM_IO_REGISTER);
+
+    put_eflags(eflags);
+
+    return ret;
+}
+
+
 typedef struct PlatformPrintf {
     uint pos;
     uint end;
