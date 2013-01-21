@@ -1,4 +1,3 @@
-
 /*
     Copyright (c) 2013 Yaniv Kamay,
     All rights reserved.
@@ -186,6 +185,20 @@ int find_lsb_64(uint64_t val)
     }
 
     return -1;
+}
+
+
+int find_msb_64(uint64_t val)
+{
+    int i;
+
+    for (i = 63; i >=0; i--) {
+        if (val & (1ULL << i)) {
+            return i;
+        }
+    }
+
+    return i;
 }
 
 

@@ -108,6 +108,7 @@ void post(uint8_t code);
 int find_lsb_32(uint32_t val);
 int find_lsb_64(uint64_t val);
 int find_msb_32(uint32_t val);
+int find_msb_64(uint64_t val);
 
 void outb(uint16_t port, uint8_t val);
 void outw(uint16_t port, uint16_t val);
