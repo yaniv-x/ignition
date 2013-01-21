@@ -623,13 +623,13 @@ enum {
 
 enum {
     MEM_MAP_INDEX_BASE = 0,
-    MEM_MAP_INDEX_EBDA = 1,
-    MEM_MAP_INDEX_BIOS = 2,
-    MEM_MAP_INDEX_ABOVE_1M = 3,
-    //MEM_MAP_INDEX_IO_APIC,
-    //MEM_MAP_INDEX_LOCAL_APIC,
-    MEM_MAP_INDEX_BELOW_4G = 4,
-    MEM_MAP_INDEX_ABOVE_4G = 5,
+    MEM_MAP_INDEX_EBDA,
+    MEM_MAP_INDEX_BIOS,
+    MEM_MAP_INDEX_ABOVE_1M,
+    MEM_MAP_INDEX_IO_APIC,
+    MEM_MAP_INDEX_LOCAL_APIC,
+    MEM_MAP_INDEX_BELOW_4G,
+    MEM_MAP_INDEX_ABOVE_4G,
 };
 
 
@@ -655,14 +655,18 @@ static bool_t big_mem_get_map(UserRegs __far * context)
     switch (context->ebx) {
     case MEM_MAP_INDEX_BASE:
         ent->address = 0;
-        ent->size = (uint64_t)(BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB) * KB;
+        ent->size = (uint64_t)(BASE_MEMORY_SIZE_KB - ebda_read_byte(BIOS_EBDA_SIZE_KB)) * KB;
         ent->type = MEM_TYPE_AVAIABLE;
         context->ebx = MEM_MAP_INDEX_EBDA;
         context->ecx = sizeof(MemMapEnt);
         break;
     case MEM_MAP_INDEX_EBDA:
-        ent->address = (uint64_t)(BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB) * KB;
-        ent->size = BIOS_EBDA_SIZE_KB * KB;
+        ent->address = (uint64_t)bda_read_word(BDA_OFFSET_EBDA) << 4;
+        ent->size = (uint64_t)ebda_read_byte(BIOS_EBDA_SIZE_KB) * KB;
+        if (ent->address != (BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB) * KB ||
+                                                              ent->size != BIOS_EBDA_SIZE_KB * KB) {
+            D_MESSAGE("MEM_MAP_INDEX_EBDA: EBDA changed");
+        }
         ent->type = MEM_TYPE_RESERVED;
         context->ebx = MEM_MAP_INDEX_BIOS;
         context->ecx = sizeof(MemMapEnt);
@@ -674,7 +678,7 @@ static bool_t big_mem_get_map(UserRegs __far * context)
         if (ebda_read_dword(OFFSET_OF_PRIVATE(above_1m_pages))) {
             context->ebx = MEM_MAP_INDEX_ABOVE_1M;
         } else {
-            context->ebx = MEM_MAP_INDEX_BELOW_4G;
+            context->ebx = MEM_MAP_INDEX_IO_APIC;
         }
         context->ecx = sizeof(MemMapEnt);
         break;
@@ -687,10 +691,24 @@ static bool_t big_mem_get_map(UserRegs __far * context)
         ent->address = 1ULL * MB;
         ent->size = above_1m_pages * KB * 4;
         ent->type = MEM_TYPE_AVAIABLE;
-        context->ebx = MEM_MAP_INDEX_BELOW_4G;
+        context->ebx = MEM_MAP_INDEX_IO_APIC;
         context->ecx = sizeof(MemMapEnt);
         break;
     }
+    case MEM_MAP_INDEX_IO_APIC:
+        ent->address = IO_APIC_ADDRESS;
+        ent->size = 4 * KB;
+        ent->type = MEM_TYPE_RESERVED;
+        context->ebx = MEM_MAP_INDEX_LOCAL_APIC;
+        context->ecx = sizeof(MemMapEnt);
+        break;
+    case MEM_MAP_INDEX_LOCAL_APIC:
+        ent->address = LOCAL_APIC_ADDRESS;
+        ent->size = 4 * KB;
+        ent->type = MEM_TYPE_RESERVED;
+        context->ebx = MEM_MAP_INDEX_BELOW_4G;
+        context->ecx = sizeof(MemMapEnt);
+        break;
     case MEM_MAP_INDEX_BELOW_4G: {
         uint32_t below_4g_pages = ebda_read_dword(OFFSET_OF_PRIVATE(below_4g_pages));
         ent->address = 4ULL * GB - (below_4g_pages * KB * 4);
