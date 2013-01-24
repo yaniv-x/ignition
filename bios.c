@@ -655,17 +655,21 @@ static bool_t big_mem_get_map(UserRegs __far * context)
     switch (context->ebx) {
     case MEM_MAP_INDEX_BASE:
         ent->address = 0;
-        ent->size = (uint64_t)(BASE_MEMORY_SIZE_KB - ebda_read_byte(BIOS_EBDA_SIZE_KB)) * KB;
+        ent->size = (uint64_t)(BASE_MEMORY_SIZE_KB - ebda_read_byte(EBDA_OFFSET_SIZE)) * KB;
         ent->type = MEM_TYPE_AVAIABLE;
         context->ebx = MEM_MAP_INDEX_EBDA;
         context->ecx = sizeof(MemMapEnt);
         break;
     case MEM_MAP_INDEX_EBDA:
         ent->address = (uint64_t)bda_read_word(BDA_OFFSET_EBDA) << 4;
-        ent->size = (uint64_t)ebda_read_byte(BIOS_EBDA_SIZE_KB) * KB;
+        ent->size = (uint64_t)ebda_read_byte(EBDA_OFFSET_SIZE) * KB;
         if (ent->address != (BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB) * KB ||
                                                               ent->size != BIOS_EBDA_SIZE_KB * KB) {
-            D_MESSAGE("MEM_MAP_INDEX_EBDA: EBDA changed");
+            D_MESSAGE("MEM_MAP_INDEX_EBDA: EBDA changed, 0x%llx  0x%llx 0x%lx 0x%lx",
+                      ent->address,
+                      ent->size,
+                      (BASE_MEMORY_SIZE_KB - BIOS_EBDA_SIZE_KB) * KB,
+                      BIOS_EBDA_SIZE_KB * KB);
         }
         ent->type = MEM_TYPE_RESERVED;
         context->ebx = MEM_MAP_INDEX_BIOS;
@@ -1037,7 +1041,7 @@ void on_int1a(UserRegs __far * context)
             break;
         }
 
-        CH(context) = rtc_read(CMOS_OFFSET_ISA_CENTURY);
+        CH(context) = rtc_read(CMOS_OFFSET_CENTURY);
         CL(context) = rtc_read(RTC_YEAR);
         DH(context) = rtc_read(RTC_MOUNTH);
         DL(context) = rtc_read(RTC_DAY_OF_MOUNTH);
@@ -1051,7 +1055,7 @@ void on_int1a(UserRegs __far * context)
 
         rtc_write(RTC_REGB, regb);
 
-        rtc_write(CMOS_OFFSET_ISA_CENTURY, CH(context));
+        rtc_write(CMOS_OFFSET_CENTURY, CH(context));
         rtc_write(RTC_YEAR, CL(context));
         rtc_write(RTC_MOUNTH, DH(context));
         rtc_write(RTC_DAY_OF_MOUNTH, DL(context));

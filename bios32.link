@@ -7,6 +7,7 @@ file utils_32.o
 file pci_32.o
 file platform_32.o
 file service_directory.o
+file acpi.o
 file lib32/i8rs386.o
 file lib32/i8d.o
 file lib32/i8m386.o

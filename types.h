@@ -106,6 +106,26 @@ typedef _Packed struct BootOption {
 } BootOption;
 
 
+typedef _Packed struct RSDP  { // ACPI root system description pointer
+    uint8_t signature[8];  // "RSD PTR "
+    uint8_t checksum;
+    uint8_t oem_str[6];    // "IGNIT"
+    uint8_t revision;      // 2
+    uint32_t rsdt_address;
+    uint32_t length;
+    uint64_t xsdt_address;
+    uint8_t ext_checksum;
+    uint8_t reserved[3];
+} RSDP;
+
+
+typedef _Packed struct DumbAlloc {
+    uint32_t start;
+    uint32_t pos;
+    uint32_t end;
+}DumbAlloc;
+
+
 typedef _Packed struct EBDAPrivate {
     uint32_t pmode_stack_base;
     uint16_t real_mode_ss;
@@ -143,9 +163,7 @@ typedef _Packed struct EBDAPrivate {
     uint32_t ext_copy_src;
     uint32_t ext_copy_dest;
 
-    uint32_t alloc_start;
-    uint32_t alloc_pos;
-    uint32_t alloc_end;
+    DumbAlloc stage1_allocator;
     uint32_t stage1_flags;
     address_t activation_list;
     address_t io_bars;
@@ -174,7 +192,8 @@ typedef _Packed struct PrivateData {
 
 
 typedef _Packed struct EBDA {
-    uint8_t public[EBDA_PRIVATE_START];
+    uint8_t public[EBDA_PUBLIC_END];
+    RSDP rsdp;
     EBDAPrivate private;
 } EBDA;
 

@@ -115,8 +115,8 @@
 #define CMOS_OFFSET_HD1_PARAMS 0x24
 #define CMOS_OFFSET_EXT_MEM_LOW_1 0x30
 #define CMOS_OFFSET_EXT_MEM_HIGH_1 0x31
-#define CMOS_OFFSET_ISA_CENTURY 0x32
-#define CMOS_OFFSET_PS2_CENTURY 0x37
+#define CMOS_OFFSET_ISA_CENTURY 0x32 // remove ?
+#define CMOS_OFFSET_CENTURY 0x37
 
 #define PIC_ICW1_MASK (1 << 4)
 #define PIC_ICW1_ICW4 (1 << 0)
@@ -336,9 +336,11 @@
 #define EBDA_OFFSET_KBD_DELAY 0x6f
 #define EBDA_OFFSET_KBD_ID 0x117
 
-#define EBDA_PRIVATE_START 0x140 // the last known used offset according to "The Unocumented PC"
+#define EBDA_PUBLIC_END 0x140 // the last known used offset according to "The Unocumented PC"
                                  // is dword @ 11dh. leaving some space in order to be on the
                                  // safe side.
+#define EBDA_ACPI_SIZE 36
+#define EBDA_PRIVATE_START (EBDA_PUBLIC_END + EBDA_ACPI_SIZE)
 
 #define EBDA_MOUSE_FLAGS_HANDLER (1 << 15)
 #define EBDA_MOUSE_FLAGS_ENABLED (1 << 14)

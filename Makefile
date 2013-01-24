@@ -4,7 +4,7 @@ CC=~/watcom/binl/wcc
 CC386=~/watcom/binl/wcc386
 
 C_SOURCES_16 = bios.c pci_16.c utils_16.c platform_16.c ata.c boot.c keyboard.c
-C_SOURCES_32 = bios32.c pci_32.c utils_32.c service_directory.c platform_32.c
+C_SOURCES_32 = bios32.c pci_32.c utils_32.c service_directory.c platform_32.c acpi.c
 C_SOURCES = $(C_SOURCES_16) $(C_SOURCES_32)
 
 C_OBJECTS_16 = $(C_SOURCES_16:%.c=%.o)
@@ -27,7 +27,7 @@ TMP_DEP_FILE = $(DEP_DIR)/$(*F).tmp
 OBJECTS_16 = $(C_OBJECTS_16) $(NASM_OBJECTS_16) jump.bin
 OBJECTS_32 = $(C_OBJECTS_32) $(NASM_OBJECTS_32)
 
-AUTO_GEN = defs.inc
+AUTO_GEN = defs.inc DSDT.c
 
 
 %.o : %.c
@@ -85,10 +85,15 @@ fixup : fixup.c
 jump.bin : jump.nasm
 	nasm -f bin -o $@ $<
 
+DSDT.c : DSDT.asl
+	@iasl -tc DSDT.asl
+	@mv DSDT.hex DSDT.c
+	@sed -i -e's/unsigned char AmlCode/const uint8_t dsdt/' DSDT.c
 
 clean :
 	rm -f *.o *.bin defs.inc bios32.map bios.map fixup
 	rm -rf .deps
+	rm -f DSDT.aml DSDT.hex DSDT.c
 
 
 all : ignition.bin

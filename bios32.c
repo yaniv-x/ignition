@@ -36,7 +36,8 @@
 #define globals get_ebda_private()
 
 
-void ret_16(void);
+void ret_16();
+void init_acpi();
 
 #define EXP_ROM_BAR PCI_NUM_BARS
 #define MID_RAM_RANGE_ALIGMENT_MB 512
@@ -45,13 +46,22 @@ void ret_16(void);
 #define FLAGS_VGA_RES_WAS_CLAIMED (1 << 1)
 
 
-#define BDA_WORD(offset) ((uint16_t*)(bda + (offset)))
+#define BDA_WORD(offset) ((uint16_t*)(BIOS_DATA_AREA_ADDRESS + (offset)))
 #define EBDA_BYTE(offset) (get_ebda()->public + (offset))
 
 
 #define DUMB_ALLOC_ALIGNMENT 4
 #define DUMB_ALLOC_START 0x00060000
 #define DUMB_ALLOC_SIZE (64 * 1024)
+
+
+typedef _Packed struct HighMemRoot {
+    uint64_t pci64_hole_start;  // DSDT.asl dependency
+    uint64_t pci64_hole_end;    // DSDT.asl dependency
+    uint32_t pci32_hole_start;  // DSDT.asl dependency
+    uint32_t _0;
+    DumbAlloc allocator;
+} HighMemRoot;
 
 
 typedef struct PCIBarResouce {
@@ -69,9 +79,6 @@ typedef struct PCIDevDescriptor {
     uint32_t device;
     struct PCIDevDescriptor* next;
 } PCIDevDescriptor;
-
-
-static uint8_t* bda = (uint8_t*)BIOS_DATA_AREA_ADDRESS;
 
 
 static inline void post_and_halt(uint8_t code)
@@ -139,9 +146,9 @@ static void write_msr(uint32_t index, uint64_t val)
 }
 
 
-static EBDA* get_ebda()
+EBDA* get_ebda()
 {
-    uint32_t seg = *(uint16_t*)(bda + BDA_OFFSET_EBDA);
+    uint32_t seg = *(uint16_t*)(BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA);
     EBDA* ebda = (EBDA*)(seg << 4);
     return ebda;
 }
@@ -150,6 +157,14 @@ static EBDA* get_ebda()
 static EBDAPrivate* get_ebda_private()
 {
     return &get_ebda()->private;
+}
+
+
+static address_t get_high_mem()
+{
+    EBDAPrivate* private = get_ebda_private();
+
+    return (4 * (GB >> PAGE_SHIFT) - private->below_4g_pages) << PAGE_SHIFT;
 }
 
 
@@ -235,28 +250,42 @@ static int pci_enable_device(uint32_t bus, uint32_t device, void __far * opaque)
 }
 
 
-address_t dumb_zalloc(uint32_t size)
+
+static address_t _dumb_zalloc(DumbAlloc* allocator, uint32_t size)
 {
     address_t ret;
 
     size = ALIGN(size, DUMB_ALLOC_ALIGNMENT);
 
-    if (globals->alloc_end - globals->alloc_pos < size) {
-        post_and_halt(POST_CODE_DUMB_OOM);
+    if (allocator->end - allocator->pos < size) {
+        bios_error(BIOS_ERROR_DUMB_OMM);
     }
 
-    ret = globals->alloc_pos;
-    globals->alloc_pos += size;
+    ret = allocator->pos;
+    allocator->pos += size;
     mem_set((void*)ret, 0, size);
 
     return ret;
 }
 
 
+static address_t stage1_zalloc(uint32_t size)
+{
+    return _dumb_zalloc(&globals->stage1_allocator, size);
+}
+
+
+address_t zalloc(uint32_t size)
+{
+    DumbAlloc* allocator = &((HighMemRoot*)get_high_mem())->allocator;
+    return _dumb_zalloc(allocator, size);
+}
+
+
 static void pci_add_bar(PCIBarResouce** head, uint32_t bus, uint32_t device, uint bar,
                         uint64_t size)
 {
-    PCIBarResouce* item = (PCIBarResouce*)dumb_zalloc(sizeof(*item));
+    PCIBarResouce* item = (PCIBarResouce*)stage1_zalloc(sizeof(*item));
     item->bus = bus;
     item->device = device;
     item->bar = bar;
@@ -356,7 +385,7 @@ static int is_fixed_bar(uint32_t bus, uint32_t device, uint bar)
 
 static void pci_mark_for_activation(uint32_t bus, uint32_t device)
 {
-    PCIDevDescriptor* descriptor = (PCIDevDescriptor*)dumb_zalloc(sizeof(*descriptor));
+    PCIDevDescriptor* descriptor = (PCIDevDescriptor*)stage1_zalloc(sizeof(*descriptor));
     PCIDevDescriptor** now;
 
     descriptor->bus = bus;
@@ -487,14 +516,14 @@ static inline void early_map_platform_io()
 
 static uint64_t to_power_of_two(uint64_t val)
 {
-    int msb = find_msb_32(val);
+    int msb = find_msb_64(val);
     uint64_t r;
 
     if (msb < 0) {
         return 0;
     }
 
-    r = 1 << msb;
+    r = 1ULL << msb;
 
     return (r == val) ? r : (r << 1);
 }
@@ -532,18 +561,46 @@ static void init_platform()
     below_4g_sum += to_power_of_two(globals->below_4g_pages);
 
     if (globals->below_1m_used_pages > (MB - ((640 + 128) * KB) >> PAGE_SHIFT) ||
-                                    globals->below_4g_used_pages > globals->below_4g_pages ||
+                                    !globals->below_4g_pages ||
+                                    globals->below_4g_used_pages >= globals->below_4g_pages ||
                                     below_4g_sum > 4 * (GB >> PAGE_SHIFT)) {
         bios_error(BIOS_ERROR_INVALID_PLATFORM_ARGS);
     }
 
     globals->pci32_hole_start = (globals->above_1m_pages << PAGE_SHIFT) + MB;
     globals->pci32_hole_start = ALIGN(globals->pci32_hole_start, MID_RAM_RANGE_ALIGMENT_MB * MB);
-    globals->pci32_hole_end = (GB >> PAGE_SHIFT) * 4 - to_power_of_two(globals->below_4g_pages);
-    globals->pci32_hole_end <<= PAGE_SHIFT;
+    globals->pci32_hole_end = IO_APIC_ADDRESS;
 
     globals->pci64_hole_start = 4ULL * GB + ((uint64_t)globals->above_4g_pages << PAGE_SHIFT);
     globals->pci64_hole_start = to_power_of_two(globals->pci64_hole_start);
+
+    D_MESSAGE("PCI32_HOLE(0x%lx, 0x%lx) PCI64_HOLE(0x%llx, 0x%llx)",
+              globals->pci32_hole_start,
+              globals->pci32_hole_end,
+              globals->pci64_hole_start,
+              1ULL << globals->address_lines);
+}
+
+
+static void init_high_mem()
+{
+    address_t high_mem = get_high_mem();
+    HighMemRoot* root = (HighMemRoot*)high_mem; // DSDT.asl dependency
+    uint32_t pages = globals->below_4g_pages - globals->below_4g_used_pages;
+    DumbAlloc* allocator = &root->allocator;
+
+    ASSERT(globals->below_4g_pages && globals->below_4g_pages > globals->below_4g_used_pages);
+
+    root->pci64_hole_start = globals->pci64_hole_start;
+    root->pci64_hole_end = 1ULL << globals->address_lines;
+    root->pci32_hole_start = globals->pci32_hole_start;
+    root->_0 = 0;
+
+    allocator->start = (address_t)(allocator + 1);
+    allocator->pos = allocator->start;
+    allocator->end = high_mem + (pages << PAGE_SHIFT);
+
+    pci_write_32(0, HOST_BRIDGE_SLOT, HOST_BRIDGE_BIOS_REG_OFFSET, high_mem); // DSDT.asl dependency
 }
 
 
@@ -583,6 +640,7 @@ static inline PCIBarResouce* pci_first_unmapped(PCIBarResouce* bar_list)
 
 static int pci_assign_mem32(PCIBarResouce* bar_list)
 {
+    // bar_list is sorted by pci_add_bar imp
     uint32_t pci_hole_start = globals->pci32_hole_start;
     uint32_t pci_end_address = globals->pci32_hole_end;
     PCIBarResouce* item;
@@ -634,6 +692,7 @@ static int pci_assign_mem32(PCIBarResouce* bar_list)
 
 static void pci_assign_mem64()
 {
+    // bar_list is sorted by pci_add_bar imp
     PCIBarResouce* item = (PCIBarResouce*)globals->mem64_bars;
     uint64_t pci_hole_start;
     uint64_t pci_hole_end;
@@ -718,38 +777,6 @@ static void init_pci()
 }
 
 
-static int pci_add_routing(uint32_t bus, uint32_t device, void __far * opaque)
-{
-    PrivateData* p = (PrivateData*)(globals->platform_ram + PLATFORM_BIOS_DATA_START);
-    uint index = p->irq_routing_table_size;
-    IRQOption *ent;
-
-    if (index == sizeof(p->irq_routing_table) / sizeof(p->irq_routing_table[0])) {
-        bios_error(BIOS_ERROR_OUT_OF_ROUTING_SLOTS);
-    }
-
-    ent = &p->irq_routing_table[index];
-
-    ent->bus = bus;
-    ent->device = device << 3;
-    ent->int_a_link = index * 4;
-    ent->int_b_link = index * 4 + 1;
-    ent->int_c_link = index * 4 + 2;
-    ent->int_d_link = index * 4 + 3;
-    ent->int_a_bitmap = (device == PM_CONTROLLER_SLOT) ? (1 << PM_IRQ_LINE) :
-                                                         NOX_PCI_IRQ_LINES_MASK;
-    ent->int_b_bitmap = NOX_PCI_IRQ_LINES_MASK;
-    ent->int_c_bitmap = ent->int_b_bitmap;
-    ent->int_d_bitmap = ent->int_c_bitmap;
-    ent->slot = 0;
-    ent->reserved = 0;
-
-    p->irq_routing_table_size++;
-
-    return FALSE;
-}
-
-
 static uint get_pci_irq_mask(uint bus, uint device, uint pin)
 {
     PrivateData* p = (PrivateData*)(globals->platform_ram + PLATFORM_BIOS_DATA_START);
@@ -813,7 +840,7 @@ static void pci_assign_irq()
         args.irq = irq;
         args.pin += 0xa - 1;
         args.ret_val = 0;
-        platform_command(PALTFORM_CMD_SET_PCI_IRQ, &args, sizeof(args));
+        platform_command(PLATFORM_CMD_SET_PCI_IRQ, &args, sizeof(args));
 
         if (!args.ret_val) {
             D_MESSAGE("a %u", args.ret_val);
@@ -828,9 +855,36 @@ static void pci_assign_irq()
 static void init_irq_routing()
 {
     PrivateData* p = (PrivateData*)(globals->platform_ram + PLATFORM_BIOS_DATA_START);
+    uint i;
+
     p->irq_routing_table_size = 0;
 
-    pci_for_each(pci_add_routing, NULL);
+    for (i = 0; i < NOX_PCI_NUM_SLOTS; i++) {
+        IRQOption *ent;
+
+        if (i == sizeof(p->irq_routing_table) / sizeof(p->irq_routing_table[0])) {
+            bios_error(BIOS_ERROR_OUT_OF_ROUTING_SLOTS);
+        }
+
+        ent = &p->irq_routing_table[i];
+
+        ent->bus = 0;
+        ent->device = i << 3;
+        ent->int_a_link = (i + 0) % NOX_PCI_NUM_INT_LINKS;
+        ent->int_b_link = (i + 1) % NOX_PCI_NUM_INT_LINKS;
+        ent->int_c_link = (i + 2) % NOX_PCI_NUM_INT_LINKS;
+        ent->int_d_link = (i + 3) % NOX_PCI_NUM_INT_LINKS;
+        ent->int_a_bitmap = (i == PM_CONTROLLER_SLOT) ? (1 << PM_IRQ_LINE) :
+                                                         NOX_PCI_IRQ_EXCLUSIVE_MASK;
+        ent->int_b_bitmap = NOX_PCI_IRQ_EXCLUSIVE_MASK;
+        ent->int_c_bitmap = ent->int_b_bitmap;
+        ent->int_d_bitmap = ent->int_c_bitmap;
+        ent->slot = 0;
+        ent->reserved = 0;
+
+        p->irq_routing_table_size++;
+    }
+
     pci_assign_irq();
 }
 
@@ -853,9 +907,9 @@ static void init_globals()
 {
     uint32_t eax, ebx, ecx, edx;
 
-    globals->alloc_start = DUMB_ALLOC_START;
-    globals->alloc_end = DUMB_ALLOC_START + DUMB_ALLOC_SIZE;
-    globals->alloc_pos = globals->alloc_start;
+    globals->stage1_allocator.start = DUMB_ALLOC_START;
+    globals->stage1_allocator.end = DUMB_ALLOC_START + DUMB_ALLOC_SIZE;
+    globals->stage1_allocator.pos = globals->stage1_allocator.start;
     globals->real_hard_int_ss = BIOS_HARD_INT_STACK_ADDRESS >> 4; // BUG: need to be relative
     globals->real_hard_int_sp = BIOS_HARD_INT_STACK_SIZE_KB * KB;
 
@@ -940,8 +994,8 @@ static inline void init_rtc()
 
     // bios periodic timer rate is 1024hz
 
-    rtc_write(CMOS_OFFSET_ISA_CENTURY, 0x20); // IBM
-    rtc_write(CMOS_OFFSET_PS2_CENTURY, 0x20); // PS2
+    rtc_write(CMOS_OFFSET_CENTURY, 0x20);
+    rtc_write(CMOS_OFFSET_ISA_CENTURY, 0x20); // remove ?
 }
 
 
@@ -1330,6 +1384,7 @@ static void init()
     pci_for_each(pci_disable_device, NULL);
     early_map_platform_io();
     init_platform();
+    init_high_mem();
     init_pci();
     reset_platform_io();
 
@@ -1337,7 +1392,9 @@ static void init()
     D_MESSAGE("sizeof(EBDA) is %u", sizeof(EBDA));
 
     ASSERT(sizeof(EBDA) <= BIOS_EBDA_DATA_KB * KB);
-    ASSERT(*(uint16_t*)(bda + BDA_OFFSET_EBDA) == (BIOS_EBDA_ADDRESS >> 4));
+    ASSERT(*(uint16_t*)(BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA) == (BIOS_EBDA_ADDRESS >> 4));
+    ASSERT(EBDA_ACPI_SIZE == sizeof(RSDP));
+    ASSERT(EBDA_PRIVATE_START == OFFSET_OF(EBDA, private));
     ASSERT(OFFSET_OF(EBDAPrivate, pmode_stack_base) == PRIVATE_OFFSET_PM_STACK_BASE);
     ASSERT(OFFSET_OF(EBDAPrivate, real_mode_ss) == PRIVATE_OFFSET_REAL_MODE_SS);
     ASSERT(OFFSET_OF(EBDAPrivate, real_mode_sp) == PRIVATE_OFFSET_REAL_MODE_SP);
@@ -1361,6 +1418,7 @@ static void init()
     init_pit();
     init_pic();
     init_irq_routing();
+    init_acpi();
 
     get_ebda_private()->call_ret_val = TRUE;
 }

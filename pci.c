@@ -290,7 +290,7 @@ void pcibios_set_irq(UserRegs __far * context)
     }
 
     args.ret_val = 0;
-    platform_command(PALTFORM_CMD_SET_PCI_IRQ, &args, sizeof(args));
+    platform_command(PLATFORM_CMD_SET_PCI_IRQ, &args, sizeof(args));
 
     if (!args.ret_val) {
         D_MESSAGE("config failed");
