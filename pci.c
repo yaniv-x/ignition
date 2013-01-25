@@ -275,30 +275,58 @@ static void pcibios_get_irq_option(UserRegs __far * context)
 
 void pcibios_set_irq(UserRegs __far * context)
 {
-    PCmdSetIRQ args;
-    uint function;
+    uint8_t pin = CL(context);
+    uint8_t irq = CH(context);
+    uint8_t bus = BH(context);
+    uint8_t device = BL(context) >> 3;
+    uint8_t function = BL(context) & 0x7;
+    uint8_t link;
+    uint8_t r;
 
-    args.pin = CL(context);
-    args.irq = CH(context);
-    args.bus = BH(context);
-    args.device = BL(context) >> 3;
-    function = BL(context) & 0x7;
-
-    if (args.pin < 0x0a || args.pin > 0x0d || args.irq > 15 || function || args.bus) {
+    if (pin < 0x0a || pin > 0x0d || irq > 15 || bus || function) {
         D_MESSAGE("failed ebx 0x%lx ecx 0x%lx", context->ebx, context->ecx);
         AH(context) = PCIBIOS_SET_FAILED;
+        return;
     }
 
-    args.ret_val = 0;
-    platform_command(PLATFORM_CMD_SET_PCI_IRQ, &args, sizeof(args));
+    pin -= 0x0a;
 
-    if (!args.ret_val) {
-        D_MESSAGE("config failed");
+    if (device == PM_CONTROLLER_SLOT && pin == 0) {
+        if (irq == PM_IRQ_LINE) {
+            AH(context) = PCIBIOS_SUCCESSFUL;
+            FLAGS(context) &= ~(1 << CPU_FLAGS_CF_BIT);
+        } else {
+            D_MESSAGE("failed: SCI is hard-wired to 0x%x", PM_IRQ_LINE);
+            AH(context) = PCIBIOS_SET_FAILED;
+        }
+
+        return;
+    }
+
+    link = NOX_PCI_DEV_TO_LINK(device, pin);
+
+    pci_write_8(0, HOST_BRIDGE_SLOT, NOX_HOST_BRIDGE_STEERING_OFFSET + NOX_STEERING_LINK, link);
+    r = pci_read_8(0, HOST_BRIDGE_SLOT, NOX_HOST_BRIDGE_STEERING_OFFSET + NOX_STEERING_STATE);
+
+    if ((r & NOX_STEERING_ERROR_MASK)) {
+        D_MESSAGE("select link 0x%x failed", link);
         AH(context) = PCIBIOS_SET_FAILED;
-    } else {
-        AH(context) = PCIBIOS_SUCCESSFUL;
-        FLAGS(context) &= ~(1 << CPU_FLAGS_CF_BIT);
+        return;
     }
+
+    pci_write_8(0, HOST_BRIDGE_SLOT, NOX_HOST_BRIDGE_STEERING_OFFSET + NOX_STEERING_IRQ, irq);
+    r = pci_read_8(0, HOST_BRIDGE_SLOT, NOX_HOST_BRIDGE_STEERING_OFFSET + NOX_STEERING_STATE);
+
+    if ((r & NOX_STEERING_ERROR_MASK)) {
+        D_MESSAGE("select irq 0x%x on link 0x%x failed", link);
+        AH(context) = PCIBIOS_SET_FAILED;
+        return;
+    }
+
+    ASSERT((r & NOX_STEERING_ENABLE_MASK));
+
+    AH(context) = PCIBIOS_SUCCESSFUL;
+    FLAGS(context) &= ~(1 << CPU_FLAGS_CF_BIT);
 }
 
 

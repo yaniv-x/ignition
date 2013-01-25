@@ -600,7 +600,8 @@ static void init_high_mem()
     allocator->pos = allocator->start;
     allocator->end = high_mem + (pages << PAGE_SHIFT);
 
-    pci_write_32(0, HOST_BRIDGE_SLOT, HOST_BRIDGE_BIOS_REG_OFFSET, high_mem); // DSDT.asl dependency
+    // DSDT.asl dependency
+    pci_write_32(0, HOST_BRIDGE_SLOT, NOX_HOST_BRIDGE_BIOS_OFFSET, high_mem);
 }
 
 
@@ -759,9 +760,49 @@ static void pci_activation()
 }
 
 
+static void pci_init_links()
+{
+    uint32_t irq_mask = NOX_PCI_IRQ_EXCLUSIVE_MASK & ~(1 << PM_IRQ_LINE);
+    uint8_t irq = 31;
+    uint i;
+
+    for (i = 0; i < NOX_PCI_NUM_INT_LINKS; i++) {
+        uint offset;
+        uint8_t r;
+
+        do {
+            irq = (irq + 1) % 32;
+        } while (!((1 << irq) & irq_mask));
+
+        offset = NOX_HOST_BRIDGE_STEERING_OFFSET;
+        pci_write_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_LINK, i);
+        r = pci_read_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_STATE);
+
+        if ((r & NOX_STEERING_ERROR_MASK)) {
+            bios_error(BIOS_ERROR_PCI_CONFIG_IRQ_FAILED);
+        }
+
+        pci_write_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_IRQ, irq);
+        r = pci_read_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_STATE);
+
+        if ((r & NOX_STEERING_ERROR_MASK)) {
+            bios_error(BIOS_ERROR_PCI_CONFIG_IRQ_FAILED);
+        }
+
+        pci_write_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_DISABLE, 0);
+        r = pci_read_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_STATE);
+
+        if ((r & (NOX_STEERING_ERROR_MASK | NOX_STEERING_ENABLE_MASK))) {
+            bios_error(BIOS_ERROR_PCI_CONFIG_IRQ_FAILED);
+        }
+    }
+}
+
+
 static void init_pci()
 {
     pci_for_each(pci_disable_device, NULL);
+    pci_init_links();
     pci_for_each(pci_collect_resources, NULL);
     pci_assign_io();
 
@@ -810,44 +851,50 @@ static uint get_pci_irq_mask(uint bus, uint device, uint pin)
 static void pci_assign_irq()
 {
     PCIDevDescriptor* descriptor = (PCIDevDescriptor*)globals->activation_list;
-    uint irq = 0;
 
     for (; descriptor; descriptor = descriptor->next) {
-        PCmdSetIRQ args;
-        uint mask;
 
-        args.bus = descriptor->bus;
-        args.device = descriptor->device;
-        args.pin = pci_read_8(args.bus, args.device, PCI_OFFSET_INTERRUPT_PIN);
+        uint8_t bus = descriptor->bus;
+        uint8_t device = descriptor->device;
+        uint8_t pin = pci_read_8(bus, device, PCI_OFFSET_INTERRUPT_PIN);
+        uint8_t link;
+        uint8_t irq;
+        uint8_t r;
+        uint offset;
 
-        if (!args.pin) {
-            pci_write_8(args.bus, args.device, PCI_OFFSET_INTERRUPT_LINE, 0);
+        if (!pin) {
+            pci_write_8(bus, device, PCI_OFFSET_INTERRUPT_LINE, 0);
             continue;
         }
 
-        if (args.pin > 4) {
+        if (pin > 4) {
             bios_error(BIOS_ERROR_PCI_INVALID_INTERRUPT_PIN);
         }
 
-        mask = get_pci_irq_mask(args.bus, args.device, args.pin);
+        if (device == PM_CONTROLLER_SLOT && pin == 0) {
+            pci_write_8(bus, device, PCI_OFFSET_INTERRUPT_LINE, PM_IRQ_LINE);
+            continue;
+        }
 
-        ASSERT(mask);
+        link = NOX_PCI_DEV_TO_LINK(device, pin);
 
-        do {
-            irq = (irq + 1) % (PIC_NUM_LINES * PIC_NUM_CHIPS);
-        } while (!(mask & (1 << irq)));
+        offset = NOX_HOST_BRIDGE_STEERING_OFFSET;
+        pci_write_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_LINK, link);
+        r = pci_read_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_STATE);
 
-        args.irq = irq;
-        args.pin += 0xa - 1;
-        args.ret_val = 0;
-        platform_command(PLATFORM_CMD_SET_PCI_IRQ, &args, sizeof(args));
-
-        if (!args.ret_val) {
-            D_MESSAGE("a %u", args.ret_val);
+        if ((r & NOX_STEERING_ERROR_MASK)) {
             bios_error(BIOS_ERROR_PCI_CONFIG_IRQ_FAILED);
         }
 
-        pci_write_8(args.bus, args.device, PCI_OFFSET_INTERRUPT_LINE, irq);
+        irq = pci_read_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_IRQ);
+        pci_write_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_IRQ, irq);
+        r = pci_read_8(0, HOST_BRIDGE_SLOT, offset + NOX_STEERING_STATE);
+
+        if ((r & NOX_STEERING_ERROR_MASK) || !(r & NOX_STEERING_ENABLE_MASK)) {
+            bios_error(BIOS_ERROR_PCI_CONFIG_IRQ_FAILED);
+        }
+
+        pci_write_8(bus, device, PCI_OFFSET_INTERRUPT_LINE, irq);
     }
 }
 
@@ -870,15 +917,16 @@ static void init_irq_routing()
 
         ent->bus = 0;
         ent->device = i << 3;
-        ent->int_a_link = (i + 0) % NOX_PCI_NUM_INT_LINKS;
-        ent->int_b_link = (i + 1) % NOX_PCI_NUM_INT_LINKS;
-        ent->int_c_link = (i + 2) % NOX_PCI_NUM_INT_LINKS;
-        ent->int_d_link = (i + 3) % NOX_PCI_NUM_INT_LINKS;
+        ent->int_a_link = (i == PM_CONTROLLER_SLOT) ? NOX_PCI_NUM_INT_LINKS :
+                                                      NOX_PCI_DEV_TO_LINK(i, 0);
+        ent->int_b_link = NOX_PCI_DEV_TO_LINK(i, 1);
+        ent->int_c_link = NOX_PCI_DEV_TO_LINK(i, 2);
+        ent->int_d_link = NOX_PCI_DEV_TO_LINK(i, 3);
         ent->int_a_bitmap = (i == PM_CONTROLLER_SLOT) ? (1 << PM_IRQ_LINE) :
                                                          NOX_PCI_IRQ_EXCLUSIVE_MASK;
         ent->int_b_bitmap = NOX_PCI_IRQ_EXCLUSIVE_MASK;
-        ent->int_c_bitmap = ent->int_b_bitmap;
-        ent->int_d_bitmap = ent->int_c_bitmap;
+        ent->int_c_bitmap = NOX_PCI_IRQ_EXCLUSIVE_MASK;
+        ent->int_d_bitmap = NOX_PCI_IRQ_EXCLUSIVE_MASK;
         ent->slot = 0;
         ent->reserved = 0;
 
