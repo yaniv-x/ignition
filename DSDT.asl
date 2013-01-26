@@ -31,6 +31,27 @@ DefinitionBlock("DSDT.aml",  // AML file name
                 "NOXMB01",   // table ID
                 1)           // OEM revision
 {
+    Name (_S0, Package (0x04) // working
+    {
+        0x00,   // value for PM1a_CNT.SLP_TYP
+        0x00,   // value for PM1b_CNT.SLP_TYP 
+        0x00,   // reserved 
+        0x00,   // reserved
+    })
+    Name (_S1, Package (0x04) // sleeping with processor context maintained
+    {
+        0x01, 
+        0x00, 
+        0x00, 
+        0x00,
+    })
+    Name (_S5, Package (0x04) // soft off
+    {
+        0x05, 
+        0x00, 
+        0x00, 
+        0x00,
+    })
 
     Scope(\_SB) // system bus
     {   
