@@ -289,9 +289,9 @@ void pcibios_set_irq(UserRegs __far * context)
         return;
     }
 
-    pin -= 0x0a;
+    pin -= 0x0a + 1;
 
-    if (device == PM_CONTROLLER_SLOT && pin == 0) {
+    if (device == PM_CONTROLLER_SLOT && pin == 1) {
         if (irq == PM_IRQ_LINE) {
             AH(context) = PCIBIOS_SUCCESSFUL;
             FLAGS(context) &= ~(1 << CPU_FLAGS_CF_BIT);

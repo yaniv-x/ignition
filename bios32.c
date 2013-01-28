@@ -871,7 +871,7 @@ static void pci_assign_irq()
             bios_error(BIOS_ERROR_PCI_INVALID_INTERRUPT_PIN);
         }
 
-        if (device == PM_CONTROLLER_SLOT && pin == 0) {
+        if (device == PM_CONTROLLER_SLOT && pin == 1) {
             pci_write_8(bus, device, PCI_OFFSET_INTERRUPT_LINE, PM_IRQ_LINE);
             continue;
         }
@@ -918,10 +918,10 @@ static void init_irq_routing()
         ent->bus = 0;
         ent->device = i << 3;
         ent->int_a_link = (i == PM_CONTROLLER_SLOT) ? NOX_PCI_NUM_INT_LINKS :
-                                                      NOX_PCI_DEV_TO_LINK(i, 0);
-        ent->int_b_link = NOX_PCI_DEV_TO_LINK(i, 1);
-        ent->int_c_link = NOX_PCI_DEV_TO_LINK(i, 2);
-        ent->int_d_link = NOX_PCI_DEV_TO_LINK(i, 3);
+                                                      NOX_PCI_DEV_TO_LINK(i, 1);
+        ent->int_b_link = NOX_PCI_DEV_TO_LINK(i, 2);
+        ent->int_c_link = NOX_PCI_DEV_TO_LINK(i, 3);
+        ent->int_d_link = NOX_PCI_DEV_TO_LINK(i, 4);
         ent->int_a_bitmap = (i == PM_CONTROLLER_SLOT) ? (1 << PM_IRQ_LINE) :
                                                          NOX_PCI_IRQ_EXCLUSIVE_MASK;
         ent->int_b_bitmap = NOX_PCI_IRQ_EXCLUSIVE_MASK;
