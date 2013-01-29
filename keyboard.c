@@ -468,10 +468,10 @@ static void kbd_process_ext(uint8_t scan)
     case KBD_EXT_RIGHT_MENU:
         kbd_warn_ext_scan(scan | is_break);
         return;
-    case 0x1c:
+    case KBD_EXT_PAD_ENTER:
         trans = pad_enter_trans;
         break;
-    case 0x35:
+    case KBD_EXT_PAD_DIV:
         trans = gray_div_trans;
         break;
     default:
@@ -484,6 +484,10 @@ static void kbd_process_ext(uint8_t scan)
     }
 
     flags_1 = bda_read_word(BDA_OFFSET_KBD_FLAGS_1);
+
+    if (scan == KBD_EXT_DEL && (flags_1 & (BDA_KBD_FLAGS_1_ALT | BDA_KBD_FLAGS_1_CTRL))) {
+        restart();
+    }
 
     if (is_break) {
         if (scan == KBD_EXT_SCAN_INSERT) {
@@ -767,6 +771,10 @@ static void process_scan(uint8_t scan)
     }
 
     flags_1 = bda_read_word(BDA_OFFSET_KBD_FLAGS_1);
+
+    if (scan == KBD_SCAN_DEL && (flags_1 & (BDA_KBD_FLAGS_1_ALT | BDA_KBD_FLAGS_1_CTRL))) {
+        restart();
+    }
 
     if (is_break) {
         if (scan == KBD_SCAN_INSERT) {
