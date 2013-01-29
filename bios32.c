@@ -199,6 +199,7 @@ static void detect_platform()
     vendor_id = pci_read_16(0, 0, PCI_OFFSET_VENDOR);
     device_id = pci_read_16(0, 0, PCI_OFFSET_DEVICE);
     revision = pci_read_8(0, 0, PCI_OFFSET_REVISION);
+
     if (vendor_id != NOX_PCI_VENDOR_ID ||
         device_id != NOX_PCI_DEV_ID_HOST_BRIDGE ||
         revision != NOX_PCI_DEV_HOST_BRIDGE_REV) {
@@ -206,6 +207,38 @@ static void detect_platform()
     }
 
     post(POST_CODE_PLATFORM_OK);
+}
+
+
+static void detect_cpu()
+{
+    uint32_t flags = get_eflags();
+    uint32_t eax, ebx, ecx, edx;
+
+    put_eflags(flags ^ (1 << CPU_FLAGS_ID_BIT));
+
+    if (get_eflags() == flags) {
+        // no cpuid support
+        post_and_halt(POST_CODE_DETECT_CPU_FAILED);
+    }
+
+    put_eflags(flags);
+
+    eax = 0;
+    cpuid(&eax, &ebx, &ecx, &edx);
+
+    if (ebx != FOUR_CHARS('Auth') || edx != FOUR_CHARS('enti') || ecx != FOUR_CHARS('cAMD')) {
+        post_and_halt(POST_CODE_DETECT_CPU_FAILED);
+    }
+
+    eax = 0x80000000;
+    cpuid(&eax, &ebx, &ecx, &edx);
+
+    if (eax < 0x80000008) {
+        post_and_halt(POST_CODE_DETECT_CPU_FAILED);
+    }
+
+    post(POST_CODE_DETECT_CPU_OK);
 }
 
 
@@ -986,20 +1019,8 @@ static inline void init_cpu()
     uint32_t ebx;
     uint32_t ecx;
     uint32_t edx;
-    uint32_t flags;
 
     post(POST_CODE_CPU);
-
-    flags = get_eflags();
-    put_eflags(flags ^ (1 << CPU_FLAGS_ID_BIT));
-
-    if (get_eflags() == flags) {
-        // no cpuid support
-        platform_debug_string(__FUNCTION__ ": failed");
-        freeze();
-    }
-
-    put_eflags(flags);
 
     eax = 1;
     cpuid(&eax, &ebx, &ecx, &edx);
@@ -1426,6 +1447,7 @@ static void init()
 {
     post(POST_CODE_INIT32);
 
+    detect_cpu();
     enable_a20();
     init_globals();
     detect_platform();
