@@ -1,4 +1,4 @@
-/*
+%if 0
     Copyright (c) 2013 Yaniv Kamay,
     All rights reserved.
 
@@ -22,52 +22,49 @@
     ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
     NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
-
-#ifndef _H_ERROR_CODES
-#define _H_ERROR_CODES
+%endif
 
 
-enum {
-    BIOS_ERROR_INVALID_PLATFORM_ARGS = 1,
-    BIOS_ERROR_UNEXPECTED_IP,
-    BIOS_ERROR_DUMB_OMM,
-    BIOS_ERROR_DOUBLE_HARD_INT,
-    BIOS_ERROR_STI_WHILE_IN_IRQ_CONTEXT,
-    BIOS_ERROR_OUT_OF_ROUTING_SLOTS,
-    BIOS_ERROR_NO_VGA_EXP_ROM,
-    BIOS_ERROR_EXP_ROM_NEW_SIZE,
-    BIOS_ERROR_ATA_DIAGNOSTIC_FAILED,
-    BIOS_ERROR_ATA_MALFUNCTION,
-    BIOS_ERROR_ATA_INVALID_SIGNATURE,
-    BIOS_ERROR_ATA_ID_FAILED,
-    BIOS_ERROR_ATA_TYPE_MISMATCH,
-    BISO_ERROR_REGISTER_INT_FAILED,
-    BISO_ERROR_UNREGISTER_INT_FAILED,
-    BIOS_ERROR_BOOT_INVALID_TYPE,
-    BIOS_ERROR_PCI_INVALID_INTERRUPT_PIN,
-    BIOS_ERROR_PCI_NO_IRQ_MASK,
-    BIOS_ERROR_PCI_CONFIG_IRQ_FAILED,
-    BIOS_ERROR_ACPI_OUT_OF_CPU_SLOTS,
-    BIOS_ERROR_APIC_ID_COLLISION,
-    BIOS_ERROR_ACPI_INVALID_SLOT,
-};
+segment AP_ENTRY class=CODE USE16 align=4096 CPU=686
+group DGROUP AP_ENTRY
 
 
-enum {
-    BIOS_WARN_KBD_WRITE_BLOCKED = 1,
-    BIOS_WARN_ATA_RESET_TIMEOUT,
-    BIOS_WARN_ATA_OUT_OF_SLOT,
-    BIOS_WARN_BOOT_OUT_OF_SLOTS,
-    BIOS_WARN_ATA_RESET_FAILED,
-};
+%include "defs.inc"
+%include "asm.inc"
 
 
-enum {
-    BIOS_INFO_KBD_INT_MOUSE_DATA = 1,
-    BIOS_INFO_MOUSE_INT_KBD_DATA,
-};
+extern _ap_init
 
+global _ap_entry
+_ap_entry:
+    mov al, POST_CODE_AP16
+    mov dx, IO_PORT_POST_CODE
+    out dx, al
+    jmp BIOS16_CODE_SEGMENT:.fix_cs
 
-#endif
+.fix_cs:
+    xor ax, ax
+    mov ds, ax
+    mov ds, [BIOS_DATA_AREA_ADDRESS + BDA_OFFSET_EBDA]
+
+.spin_lock:
+    mov ax, 1
+    lock xchg  ax, [EBDA_PRIVATE_START + PRIVATE_OFFSET_AP_LOCK]
+    cmp ax, 0
+    jne .spin_lock
+
+    mov al, POST_CODE_AP16 + 1
+    mov dx, IO_PORT_POST_CODE
+    out dx, al
+
+    mov ax, BIOS16_CODE_SEGMENT
+    mov ds, ax
+    xor ax, ax
+    mov ss, ax
+    mov sp, AP16_STACK_BASE
+    call _ap_init
+    cli
+.infloop:
+    hlt
+    jmp .infloop
 

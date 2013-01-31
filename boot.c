@@ -446,8 +446,7 @@ void boot()
 {
     ebda_write_word(OFFSET_OF_PRIVATE(bios_flags),
                     ebda_read_word(OFFSET_OF_PRIVATE(bios_flags)) & ~BIOS_FLAGS_UNREAL);
-    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_NOP);
-    call32();
+    call32(CALL_SELECT_NOP);
 
     INT(0x19);
 }

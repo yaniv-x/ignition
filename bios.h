@@ -46,7 +46,7 @@ uint16_t get_ds();
 uint16_t set_ds(uint16_t ds);
 void restore_ds();
 
-void call32();
+void call32(uint8_t selector);
 
 uint16_t read_word(uint16_t seg, uint16_t offset);
 

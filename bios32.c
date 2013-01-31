@@ -38,6 +38,8 @@
 
 void ret_16();
 void init_acpi();
+void acpi_finalize_MADT();
+void acpi_update_self();
 
 #define EXP_ROM_BAR PCI_NUM_BARS
 #define MID_RAM_RANGE_ALIGMENT_MB 512
@@ -115,6 +117,15 @@ static uint32_t get_cr0()
     }
 
     return r;
+}
+
+
+static void set_cr0(uint32_t val)
+{
+    __asm {
+        mov eax, val
+        mov cr0, eax
+    }
 }
 
 
@@ -1163,6 +1174,11 @@ static void setup_mttr()
     write_msr(MSR_MTRR_DEFAULT, MTRR_DEFAULT_FIXED_ENABLE_MASK | MTRR_DEFAULT_ENABLE_MASK);
 }
 
+static void enable_cache()
+{
+    set_cr0(get_cr0() & ~(CR0_CD | CR0_NW));
+}
+
 
 static inline void init_mem()
 {
@@ -1183,6 +1199,9 @@ static inline void init_mem()
     rtc_write(CMOS_OFFSET_EXT_MEM_HIGH_1, extended_memory_kb >> 8);
 
     setup_mttr();
+    enable_cache();
+
+    *EBDA_BYTE(EBDA_OFFSET_CACHE_CONTROL) = 0;
 }
 
 
@@ -1443,6 +1462,54 @@ static void copy_ext_mem()
 }
 
 
+static void init_others()
+{
+    uint num_cpus = platform_get_reg(PLATFORM_REG_NUM_CPUS);
+    volatile uint16_t* cpu_count = &get_ebda_private()->cpu_count;
+    uint32_t entry = get_ebda_private()->ap_entry;
+    uint32_t* apic_cmd_low = (uint32_t*)(LOCAL_APIC_ADDRESS + 0x300);
+    uint32_t apic_id = *(uint32_t*)(LOCAL_APIC_ADDRESS + 0x20) >> 24;
+
+    get_ebda_private()->cpu_count = 1;
+    get_ebda_private()->ap_lock = 0;
+
+    D_MESSAGE("BSP apic id is 0x%x, antry @ 0x%x", apic_id, entry);
+
+    ASSERT(entry % PAGE_SIZE == 0);
+    entry >>= PAGE_SHIFT;
+    ASSERT(entry < 256);
+
+    *apic_cmd_low = 0x000c4500; // init + assert + all excluding self
+    platform_delay(100000);
+
+    // entering SMP mode. be carful, most of the code is not thread safe.
+    *apic_cmd_low = 0x000c4600 | entry; //startup all excluding self
+
+    while (*cpu_count != num_cpus) {}
+
+    *apic_cmd_low = 0x000c4500; //init all excluding self
+    platform_delay(10000);
+    acpi_finalize_MADT();
+}
+
+
+static void init_ap()
+{
+    D_MESSAGE("");
+
+    setup_mttr();
+    enable_cache();
+    acpi_update_self();
+    get_ebda_private()->ap_lock = 0;
+    get_ebda_private()->cpu_count += 1;
+
+    for (;;) {
+        CLI();
+        HALT();
+    }
+}
+
+
 static void init()
 {
     post(POST_CODE_INIT32);
@@ -1475,6 +1542,7 @@ static void init()
     ASSERT(OFFSET_OF(EBDAPrivate, bios_flags) == PRIVATE_OFFSET_FLAGS);
     ASSERT(OFFSET_OF(EBDAPrivate, int13_emu_next_seg) == PRIVATE_OFFSET_INT13_EMU_SEG);
     ASSERT(OFFSET_OF(EBDAPrivate, int13_emu_next_offset) == PRIVATE_OFFSET_INT13_EMU_OFFSET);
+    ASSERT(OFFSET_OF(EBDAPrivate, ap_lock) == PRIVATE_OFFSET_AP_LOCK);
     ASSERT(sizeof(PrivateData) <= PLATFORM_BIOS_DATA_SIZE);
 
     rtc_write(CMOS_OFFSET_DIAGNOSTIC, 0);       // all is ok
@@ -1497,6 +1565,9 @@ static void init()
 void entry()
 {
     switch (get_ebda_private()->call_select) {
+    case CALL_SELECT_COPY_MEM:
+        copy_ext_mem();
+        break;
     case CALL_SELECT_INIT:
         init();
         break;
@@ -1509,8 +1580,11 @@ void entry()
     case CALL_SELECT_NOP:
         get_ebda_private()->call_ret_val = TRUE;
         break;
-    case CALL_SELECT_COPY_MEM:
-        copy_ext_mem();
+    case CALL_SELECT_SMP:
+        init_others();
+        break;
+    case CALL_SELECT_AP:
+        init_ap();
         break;
     default:
         bios_error(BIOS_ERROR_UNEXPECTED_IP);

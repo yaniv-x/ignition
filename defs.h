@@ -235,6 +235,7 @@
 #define POST_CODE_KEYBOARD 110
 #define POST_CODE_MOUSE 115
 #define POST_CODE_PIC 120
+#define POST_CODE_AP16 125
 #define POST_CODE_TMP 255
 
 #define BASE_MEMORY_SIZE_KB 640UL
@@ -441,6 +442,7 @@
 #define PRIVATE_OFFSET_FLAGS 16
 #define PRIVATE_OFFSET_INT13_EMU_SEG 18
 #define PRIVATE_OFFSET_INT13_EMU_OFFSET 20
+#define PRIVATE_OFFSET_AP_LOCK 22
 
 #define CPU_FLAGS_ID_BIT 21
 #define CPU_FLAGS_IF_BIT 9
@@ -462,8 +464,9 @@
     (1 << CPU_FEATURE_MTRR_BIT)         \
 )
 
-#define CR0_PE (1 << 0)
 #define CR0_CD (1 << 30)
+#define CR0_NW (1 << 29)
+#define CR0_PE (1 << 0)
 
 #define SD_CS (0x1a << 8)
 #define SD_DS (0x12 << 8)
@@ -486,6 +489,9 @@
 #define BACK_FROM_PM_START_ADDRESS 0x0002
 #define BIOS16_CODE_SEGMENT 0xf000
 #define BIOS16_SIZE (64UL * KB)
+#define BIOS16_STACK_BASE 0xeff0
+#define AP16_STACK_BASE 0xfff0
+#define AP32_STACK_BASE (1024UL * 272)
 
 #define MSR_MTRR_CAP 0xfe
 #define MSR_MTRR_PHYS_BASE_0 0x200
@@ -533,7 +539,9 @@
 #define CALL_SELECT_INIT 2
 #define CALL_SELECT_LOAD_VGA 3
 #define CALL_SELECT_LOAD_EXP_ROM 4
-#define CALL_SELECT_COPY_MEM 5
+#define CALL_SELECT_SMP 5
+#define CALL_SELECT_AP 6
+#define CALL_SELECT_COPY_MEM 7
 
 #define INT13_HANDLED 0
 #define INT13_DEC_AND_NEXT 1

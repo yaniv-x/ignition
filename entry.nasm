@@ -27,7 +27,6 @@
 segment ENTRY class=CODE USE16 align=1 CPU=686
 group DGROUP ENTRY
 
-%define BIOS16_STACK_BASE 0xfff0
 
 %include "defs.inc"
 %include "asm.inc"
@@ -56,7 +55,7 @@ extern _on_int19
 extern _freeze
 
 global _unhandled_interrupt
-global _call32
+global ___call32
 
 
 entry:
@@ -424,7 +423,13 @@ gdt dd 0x00000000, 0x00000000; first descriptor must be null descriptor
 gdt_end:
 
 
-_call32:
+___call32:
+    push bp
+    mov bp, sp
+    cmp word [bp + 4], 0
+    pop bp
+    jne .one_way
+
     pusha
     pushf
     push gs
@@ -440,6 +445,7 @@ _call32:
     mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_REAL_MODE_SP], sp
     mov ds, dx
 
+.one_way
     mov bp, sp
     sub sp, 6
     mov al, RTC_NMI_MASK

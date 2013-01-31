@@ -58,7 +58,8 @@ void int15_handler();
 void int1a_handler();
 void unhandled_int_handler();
 void dummy_interrupt();
-
+void ap_entry();
+void __call32(uint16_t oneway);
 
 uint16_t set_ds(uint16_t data_seg)
 {
@@ -940,7 +941,7 @@ void on_int15(UserRegs __far * context)
 
         ebda_write_dword(OFFSET_OF_PRIVATE(pmode_stack_base), pmod_stack);
         ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_COPY_MEM);
-        call32();
+        __call32(FALSE);
 
         AH(context) = 0;
         context->flags &= ~(1 << CPU_FLAGS_CF_BIT);
@@ -1280,8 +1281,7 @@ static void int_exp_rom()
 
     ebda_write_word(OFFSET_OF_PRIVATE(bios_flags),
                     ebda_read_word(OFFSET_OF_PRIVATE(bios_flags)) | BIOS_FLAGS_UNREAL);
-    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_NOP);
-    call32();
+    call32(CALL_SELECT_NOP);
 
     start = ebda_read_dword(OFFSET_OF_PRIVATE(loaded_rom_address));
     bus = ebda_read_byte(OFFSET_OF_PRIVATE(loaded_rom_bus));
@@ -1308,8 +1308,7 @@ static void int_exp_rom()
 
     ebda_write_word(OFFSET_OF_PRIVATE(bios_flags),
                     ebda_read_word(OFFSET_OF_PRIVATE(bios_flags)) & ~BIOS_FLAGS_UNREAL);
-    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_NOP);
-    call32();
+    call32(CALL_SELECT_NOP);
 }
 
 
@@ -1357,6 +1356,14 @@ void term_printf(const char __far * format, ...)
 }
 
 
+void call32(uint8_t selector)
+{
+    ebda_write_dword(OFFSET_OF_PRIVATE(pmode_stack_base), BIOS32_STAGE1_STACK_BASE);
+    ebda_write_dword(OFFSET_OF_PRIVATE(call_select), selector);
+    __call32(FALSE);
+}
+
+
 void init()
 {
     uint i;
@@ -1364,9 +1371,7 @@ void init()
     post(POST_CODE_INIT16);
     init_bios_data_area();
 
-    ebda_write_dword(OFFSET_OF_PRIVATE(pmode_stack_base), BIOS32_STAGE1_STACK_BASE);
-    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_INIT);
-    call32();
+    call32(CALL_SELECT_INIT);
 
     init_int_vector();
 
@@ -1381,8 +1386,7 @@ void init()
     set_int_vec(0x11, get_cs(), FUNC_OFFSET(int11_handler));
     set_int_vec(0x12, get_cs(), FUNC_OFFSET(int12_handler));
 
-    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_LOAD_VGA);
-    call32();
+    call32(CALL_SELECT_LOAD_VGA);
 
     if (ebda_read_byte(OFFSET_OF_PRIVATE(call_ret_val))) {
         int_exp_rom();
@@ -1391,8 +1395,7 @@ void init()
     ata_init();
 
     for (;;) {
-        ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_LOAD_EXP_ROM);
-        call32();
+        call32(CALL_SELECT_LOAD_EXP_ROM);
 
         if (!ebda_read_byte(OFFSET_OF_PRIVATE(call_ret_val))) {
             break;
@@ -1401,6 +1404,10 @@ void init()
         int_exp_rom();
         // todo: call PnP BEV or BCV as required and update boot options tables
     }
+
+    ebda_write_dword(OFFSET_OF_PRIVATE(ap_entry),(((uint32_t)ap_entry >> 16) << 4) +
+                                                  (uint16_t)ap_entry);
+    call32(CALL_SELECT_SMP);
 
     STI();
 
@@ -1464,5 +1471,13 @@ void init()
     }
 
     restart();
+}
+
+
+void ap_init()
+{
+    ebda_write_dword(OFFSET_OF_PRIVATE(pmode_stack_base), AP32_STACK_BASE);
+    ebda_write_byte(OFFSET_OF_PRIVATE(call_select), CALL_SELECT_AP);
+    __call32(TRUE);
 }
 

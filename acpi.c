@@ -29,6 +29,7 @@
 #include "platform.h"
 #include "pci.h"
 #include "nox.h"
+#include "error_codes.h"
 
 
 typedef _Packed struct GenAddress {
@@ -271,14 +272,6 @@ static MADT* init_multiple_apic_descriptor_table()
     madt->io_apic.io_apic_address = IO_APIC_ADDRESS;
     madt->io_apic.global_sys_interrupt_start = 0;
 
-    madt->local_apic[0].type = 0; // local APIC
-    madt->local_apic[0].length = sizeof(madt->local_apic[0]);
-    madt->local_apic[0].acpi_processor_id = 0;
-    madt->local_apic[0].apic_id = 0;
-    madt->local_apic[0].flags = (1 << 0); // enabled
-
-    madt->header.checksum = checksum8(madt, sizeof(*madt));
-
     return madt;
 }
 
@@ -298,6 +291,50 @@ static void init_root_sys_descriptor_table(RSDT* rsdt)
     rsdt->header.checksum = checksum8(rsdt, sizeof(*rsdt));
 
     init_fix_acpi_descriptor_table(fadt);
+}
+
+
+void acpi_update_self()
+{
+    RSDP* rsdp = &get_ebda()->rsdp;
+    RSDT* rsdt = (RSDT*)rsdp->rsdt_address;
+    MADT* madt = (MADT*)rsdt->madt_address;
+    uint num_cpus = platform_get_reg(PLATFORM_REG_NUM_CPUS);
+    uint32_t apic_id = *(uint32_t*)(LOCAL_APIC_ADDRESS + 0x20) >> 24;
+    uint madt_size = sizeof(MADT) + sizeof(LocalApic) * (num_cpus - 1);
+
+    if (apic_id >= num_cpus) {
+        bios_error(BIOS_ERROR_ACPI_OUT_OF_CPU_SLOTS);
+    }
+
+    if (madt->local_apic[apic_id].length) {
+        bios_error(BIOS_ERROR_APIC_ID_COLLISION);
+    }
+
+    madt->local_apic[apic_id].type = 0; // local APIC
+    madt->local_apic[apic_id].length = sizeof(madt->local_apic[0]);
+    madt->local_apic[apic_id].acpi_processor_id = apic_id;
+    madt->local_apic[apic_id].apic_id = apic_id;
+    madt->local_apic[apic_id].flags = (1 << 0);
+}
+
+
+void acpi_finalize_MADT()
+{
+    RSDP* rsdp = &get_ebda()->rsdp;
+    RSDT* rsdt = (RSDT*)rsdp->rsdt_address;
+    MADT* madt = (MADT*)rsdt->madt_address;
+    uint num_cpus = platform_get_reg(PLATFORM_REG_NUM_CPUS);
+    uint madt_size = sizeof(MADT) + sizeof(LocalApic) * (num_cpus - 1);
+    uint i;
+
+    for (i = 0; i < num_cpus; i++) {
+        if (!madt->local_apic[i].length) {
+            bios_error(BIOS_ERROR_ACPI_INVALID_SLOT);
+        }
+    }
+
+    madt->header.checksum = checksum8(madt, madt_size);
 }
 
 
@@ -321,5 +358,7 @@ void init_acpi()
     rsdp->ext_checksum = checksum8(rsdp, sizeof(*rsdp));
 
     init_root_sys_descriptor_table(rsdt);
+
+    acpi_update_self();
 }
 

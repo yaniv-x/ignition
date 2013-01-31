@@ -137,7 +137,7 @@ typedef _Packed struct EBDAPrivate {
     uint16_t bios_flags;
     uint16_t int13_emu_next_seg;
     uint16_t int13_emu_next_offset;
-    uint8_t next_cd_id;
+    uint16_t ap_lock;
 
     uint32_t below_1m_used_pages;
     uint32_t above_1m_pages;
@@ -155,6 +155,9 @@ typedef _Packed struct EBDAPrivate {
     uint8_t rtc_reg_c;
     uint8_t rtc_priodoc_refs;
     uint32_t rtc_priodoc_ticks;
+    uint16_t cpu_count;
+    uint8_t next_cd_id;
+    uint32_t ap_entry;
 
     uint8_t call_select;
     uint8_t call_ret_val;

@@ -1,7 +1,8 @@
 name bios.bin
-format dos com
+format raw bin
 
 file entry.o
+file ap_entry.o
 file bios.o
 file utils_16.o
 file pci_16.o
@@ -19,7 +20,7 @@ file lib16/i4d.o
 file lib16/i4m.o
 
 order
-    clname CODE segment ENTRY segment _TEXT
+    clname CODE segment ENTRY segment AP_ENTRY segment _TEXT
     clname DATA
 
 option nodefaultlibs
