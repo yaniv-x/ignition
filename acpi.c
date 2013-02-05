@@ -337,6 +337,7 @@ void acpi_finalize_MADT()
     madt->header.checksum = checksum8(madt, madt_size);
 }
 
+extern RSDP __RSDP;
 
 void init_acpi()
 {
@@ -358,6 +359,9 @@ void init_acpi()
     rsdp->ext_checksum = checksum8(rsdp, sizeof(*rsdp));
 
     init_root_sys_descriptor_table(rsdt);
+
+    // workaround for Haiku r1alpha4
+    mem_copy(&__RSDP, rsdp, sizeof(__RSDP));
 
     acpi_update_self();
 }

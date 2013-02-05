@@ -59,6 +59,12 @@ _ret_16:
     jmp dword CODE16_SEGMENT_SELECTOR:BACK_FROM_PM_START_ADDRESS
 
 
+global ___RSDP
+align 16
+___RSDP:
+times 64 db 0
+
+
 ; 32bit service directory
 align 16
 global DIRECTORY_SERVICE
