@@ -253,6 +253,8 @@ static MADT* init_multiple_apic_descriptor_table()
     uint num_cpus = platform_get_reg(PLATFORM_REG_NUM_CPUS);
     uint madt_size = sizeof(MADT) + sizeof(LocalApic) * (num_cpus - 1);
     MADT* madt = (MADT*)zalloc(madt_size);
+    uint32_t* io_apic_select = (uint32_t*)IO_APIC_ADDRESS;
+    uint32_t* io_apic_window = (uint32_t*)(IO_APIC_ADDRESS + 0x10);
 
     D_MESSAGE("num of cpus is %u", num_cpus);
 
@@ -268,7 +270,8 @@ static MADT* init_multiple_apic_descriptor_table()
 
     madt->io_apic.type = 1; // IO APIC
     madt->io_apic.length = sizeof(madt->io_apic);
-    madt->io_apic.io_apic_id = 0xf0;
+    *io_apic_select = 0;
+    madt->io_apic.io_apic_id = (*io_apic_window >> 24);
     madt->io_apic.io_apic_address = IO_APIC_ADDRESS;
     madt->io_apic.global_sys_interrupt_start = 0;
 
