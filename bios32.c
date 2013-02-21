@@ -1462,6 +1462,16 @@ static void copy_ext_mem()
 }
 
 
+static void busy_wait(uint milisec)
+{
+    uint64_t end = read_tsc() + (uint64_t)get_ebda_private()->ticks_per_milisec * milisec;
+
+    while (read_tsc() < end) {
+        __asm pause;
+    }
+}
+
+
 static void init_others()
 {
     uint num_cpus = platform_get_reg(PLATFORM_REG_NUM_CPUS);
@@ -1480,7 +1490,7 @@ static void init_others()
     ASSERT(entry < 256);
 
     *apic_cmd_low = 0x000c4500; // init + assert + all excluding self
-    platform_delay(100000);
+    busy_wait(100);
 
     // entering SMP mode. be carful, most of the code is not thread safe.
     *apic_cmd_low = 0x000c4600 | entry; //startup all excluding self
@@ -1488,7 +1498,7 @@ static void init_others()
     while (*cpu_count != num_cpus) {}
 
     *apic_cmd_low = 0x000c4500; //init all excluding self
-    platform_delay(10000);
+    busy_wait(10);
     acpi_finalize_MADT();
 }
 

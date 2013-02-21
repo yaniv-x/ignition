@@ -1364,6 +1364,18 @@ void call32(uint8_t selector)
 }
 
 
+static void calibrate_tsc()
+{
+    uint64_t start;
+    uint64_t end;
+
+    start = read_tsc();
+    delay(100);
+    end = read_tsc();
+    ebda_write_dword(OFFSET_OF_PRIVATE(ticks_per_milisec), (end - start) / 100);
+}
+
+
 void init()
 {
     uint i;
@@ -1379,6 +1391,7 @@ void init()
 
     setup_pit_irq();
     setup_rtc_irq();
+    calibrate_tsc();
 
     keyboard_init();
     boot_init();

@@ -158,6 +158,7 @@ typedef _Packed struct EBDAPrivate {
     uint16_t cpu_count;
     uint8_t next_cd_id;
     uint32_t ap_entry;
+    uint32_t ticks_per_milisec;
 
     uint8_t call_select;
     uint8_t call_ret_val;

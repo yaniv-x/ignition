@@ -113,12 +113,6 @@ void platform_command(uint8_t cmd, void __far * args, uint32_t args_size)
 }
 
 
-void platform_delay(uint32_t micro)
-{
-    platform_command(PLATFORM_CMD_DELAY, &micro, sizeof(micro));
-}
-
-
 uint32_t platform_get_reg(uint8_t reg_index)
 {
     uint32_t eflags = get_eflags();

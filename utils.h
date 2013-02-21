@@ -142,5 +142,19 @@ void bios_error(uint16_t code);
 void bios_warn(uint16_t code);
 void bios_info(uint16_t code);
 
+static inline uint64_t read_tsc()
+{
+    uint32_t hi;
+    uint32_t low;
+
+    __asm {
+        rdtsc
+        mov low, eax
+        mov hi, edx
+    }
+
+    return ((uint64_t)hi << 32) | low;
+}
+
 #endif
 
