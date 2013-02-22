@@ -179,40 +179,40 @@ DefinitionBlock("DSDT.aml",  // AML file name
                 Package() {0x0001ffff, 0, IL01, 0},
                 Package() {0x0001ffff, 1, IL02, 0},
                 Package() {0x0001ffff, 2, IL03, 0},
-                Package() {0x0001ffff, 3, IL00, 0},
+                Package() {0x0001ffff, 3, IL04, 0},
                 
                 // Pslot 2
                 Package() {0x0002ffff, 0, IL02, 0},
                 Package() {0x0002ffff, 1, IL03, 0},
-                Package() {0x0002ffff, 2, IL00, 0},
-                Package() {0x0002ffff, 3, IL01, 0},
+                Package() {0x0002ffff, 2, IL04, 0},
+                Package() {0x0002ffff, 3, IL05, 0},
                 
                 // slot 3
                 Package() {0x0003ffff, 0, IL03, 0},
-                Package() {0x0003ffff, 1, IL00, 0},
-                Package() {0x0003ffff, 2, IL01, 0},
-                Package() {0x0003ffff, 3, IL02, 0},
+                Package() {0x0003ffff, 1, IL04, 0},
+                Package() {0x0003ffff, 2, IL05, 0},
+                Package() {0x0003ffff, 3, IL06, 0},
                 
                 // slot 4
                 Package() {0x0004ffff, 0, 0, 9}, // SCI is hard-wired to interrupt pin 9
-                Package() {0x0004ffff, 1, IL01, 0},
-                Package() {0x0004ffff, 2, IL02, 0},
-                Package() {0x0004ffff, 3, IL03, 0},
+                Package() {0x0004ffff, 1, IL05, 0},
+                Package() {0x0004ffff, 2, IL06, 0},
+                Package() {0x0004ffff, 3, IL07, 0},
                 
                 // slot 5
-                Package() {0x0005ffff, 0, IL01, 0},
-                Package() {0x0005ffff, 1, IL02, 0},
-                Package() {0x0005ffff, 2, IL03, 0},
+                Package() {0x0005ffff, 0, IL05, 0},
+                Package() {0x0005ffff, 1, IL06, 0},
+                Package() {0x0005ffff, 2, IL07, 0},
                 Package() {0x0005ffff, 3, IL00, 0},
                 
                 // slot 6
-                Package() {0x0006ffff, 0, IL02, 0},
-                Package() {0x0006ffff, 1, IL03, 0},
+                Package() {0x0006ffff, 0, IL06, 0},
+                Package() {0x0006ffff, 1, IL07, 0},
                 Package() {0x0006ffff, 2, IL00, 0},
                 Package() {0x0006ffff, 3, IL01, 0},
                 
                 // slot 7
-                Package() {0x0007ffff, 0, IL03, 0},
+                Package() {0x0007ffff, 0, IL07, 0},
                 Package() {0x0007ffff, 1, IL00, 0},
                 Package() {0x0007ffff, 2, IL01, 0},
                 Package() {0x0007ffff, 3, IL02, 0},
@@ -227,40 +227,40 @@ DefinitionBlock("DSDT.aml",  // AML file name
                 Package() {0x0009ffff, 0, IL01, 0},
                 Package() {0x0009ffff, 1, IL02, 0},
                 Package() {0x0009ffff, 2, IL03, 0},
-                Package() {0x0009ffff, 3, IL00, 0},
+                Package() {0x0009ffff, 3, IL04, 0},
                 
                 // slot 10
                 Package() {0x000affff, 0, IL02, 0},
                 Package() {0x000affff, 1, IL03, 0},
-                Package() {0x000affff, 2, IL00, 0},
-                Package() {0x000affff, 3, IL01, 0},
+                Package() {0x000affff, 2, IL04, 0},
+                Package() {0x000affff, 3, IL05, 0},
                 
                 // slot 11
                 Package() {0x000bffff, 0, IL03, 0},
-                Package() {0x000bffff, 1, IL00, 0},
-                Package() {0x000bffff, 2, IL01, 0},
-                Package() {0x000bffff, 3, IL02, 0},
+                Package() {0x000bffff, 1, IL04, 0},
+                Package() {0x000bffff, 2, IL05, 0},
+                Package() {0x000bffff, 3, IL06, 0},
                 
                 // PCI Slot 12
-                Package() {0x000cffff, 0, IL00, 0},
-                Package() {0x000cffff, 1, IL01, 0},
-                Package() {0x000cffff, 2, IL02, 0},
-                Package() {0x000cffff, 3, IL03, 0},
+                Package() {0x000cffff, 0, IL04, 0},
+                Package() {0x000cffff, 1, IL05, 0},
+                Package() {0x000cffff, 2, IL06, 0},
+                Package() {0x000cffff, 3, IL07, 0},
                 
                 // slot 13
-                Package() {0x000dffff, 0, IL01, 0},
-                Package() {0x000dffff, 1, IL02, 0},
-                Package() {0x000dffff, 2, IL03, 0},
+                Package() {0x000dffff, 0, IL05, 0},
+                Package() {0x000dffff, 1, IL06, 0},
+                Package() {0x000dffff, 2, IL07, 0},
                 Package() {0x000dffff, 3, IL00, 0},
                 
                 // slot 14
-                Package() {0x000effff, 0, IL02, 0},
-                Package() {0x000effff, 1, IL03, 0},
+                Package() {0x000effff, 0, IL06, 0},
+                Package() {0x000effff, 1, IL07, 0},
                 Package() {0x000effff, 2, IL00, 0},
                 Package() {0x000effff, 3, IL01, 0},
                 
                 // slot 15
-                Package() {0x000fffff, 0, IL03, 0},
+                Package() {0x000fffff, 0, IL07, 0},
                 Package() {0x000fffff, 1, IL00, 0},
                 Package() {0x000fffff, 2, IL01, 0},
                 Package() {0x000fffff, 3, IL02, 0},
@@ -271,6 +271,13 @@ DefinitionBlock("DSDT.aml",  // AML file name
                 Name(_ADR, 0x00000000)
     
                 OperationRegion(STER, PCI_Config, 0x40, 0x4)
+                Mutex(STRL, 15 /*SyncLevel*/) // All Acquire terms must refer to a synchronization
+                                              // object with an equal or greater SyncLevel to
+                                              // current level, and all Release terms must refer to
+                                              // a synchronization object with equal or lower
+                                              // SyncLevel to the current level.
+                                              //
+                                              // 15 is the top SyncLevel
                 Field(STER, ByteAcc, NoLock, Preserve)
                 {
                     LINK, 8,
@@ -434,6 +441,90 @@ DefinitionBlock("DSDT.aml",  // AML file name
             IRQ (Level, ActiveLow, Shared) { 3, 4, 5, 6, 7, 9, 10, 11}
         })
 
+        Method(STA, 1, NotSerialized)
+        {
+            // Arg0 is link id
+
+            Acquire(^HOST.STRL, 0xffff) // TimeoutValue of 0xffff (or greater) indicates that
+                                        // there is no timeout and the operation will wait
+                                        // indefinitely.
+
+            Store(Arg0 , ^HOST.LINK)
+            Store(^HOST.STAT, Local0)
+            And(Local0, 0x03, Local0) // bit 0 error; bit 1 enabled
+
+            Release(^HOST.STRL)
+
+            If (LEqual(Local0, 0x02)) {
+                Return (0x0b) // enabled
+            } Else {
+                Return (0x09)
+            }
+        }
+
+        Method(DIS, 1, NotSerialized)
+        {
+            // Arg0 is link id
+
+            Acquire(^HOST.STRL, 0xffff)
+
+            Store(Arg0, ^HOST.LINK)
+            Store(^HOST.STAT, Local0)
+            And(Local0, 0x03, Local1)
+
+            If (LEqual(Local1, 0x02)) {
+                // no error and device is enabled
+                Store(0, ^HOST.DISA)
+            }
+
+            Release(^HOST.STRL)
+        }
+
+        Method(CRS, 1, NotSerialized)
+        {
+            // Arg0 is link id
+
+            Acquire(^HOST.STRL, 0xffff)
+
+            Store(ILRT, Local0)
+            CreateWordField(Local0, 0x01, MASK)
+            Store(0, MASK)
+
+            Store(Arg0, ^HOST.LINK)
+            Store(^HOST.STAT, Local1)
+            And(Local1, 0x01, Local1)
+
+            If (LEqual(Local1, 0x00)) { // no error
+                ShiftLeft(0x01, ^HOST.IRQN, MASK)
+            }
+
+            Release(^HOST.STRL)
+
+            Return (Local0)
+        }
+
+
+        Method(SRS, 2, NotSerialized)
+        {
+            // Arg0 is link id
+            // Arg1 is IRQ Descriptor
+
+            Acquire(^HOST.STRL, 0xffff)
+
+            Store(Arg0, ^HOST.LINK)
+            Store(^HOST.STAT, Local0)
+            And(Local0, 0x01, Local0)
+
+            If (LEqual(Local0, 0x00)) { // no error
+                CreateWordField(Arg1, 0x01, IRQM)
+                FindSetRightBit(IRQM, Local1)
+                Decrement(Local1)
+                Store(Local1, ^HOST.IRQN)
+            }
+
+            Release(^HOST.STRL)
+        }
+
         Device(IL00) // PCI interrupt link
         {
             Name(_HID, EISAID("PNP0C0F"))
@@ -448,61 +539,25 @@ DefinitionBlock("DSDT.aml",  // AML file name
 
             Method(_STA, 0, NotSerialized) // status
             {
-                Store(0 /*link id*/, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x03, Local0) // bit 0 error; bit 1 enabled
-
-                If (LEqual(Local0, 0x02)) {
-                    Return (0x0b) // enabled
-                } Else {
-                    Return (0x09)
-                }
+                Return (STA(0))
             }
 
             Method(_DIS, 0, NotSerialized) // disable
             {
-                Store(0 /*link id*/, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x03, Local1)
-
-                If (LEqual(Local1, 0x02)) {
-                    // no error and device is enabled
-                    Store(0, ^^HOST.DISA)
-                }
+                DIS(0)
             }
 
             Method(_CRS, 0, NotSerialized) // current resource settings
             {
-                Store(ILRT, Local0)
-                CreateWordField(Local0, 0x01, MASK)
-                Store(0, MASK)
-
-                Store(0 /*link id*/, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local1)
-                And(Local1, 0x01, Local1)
-
-                If (LEqual(Local1, 0x00)) { // no error
-                    ShiftLeft(0x01, ^^HOST.IRQN, MASK)
-                }
-
-                Return (Local0)                
+                Return (CRS(0))
             }
 
             Method(_SRS, 1, NotSerialized) // set resource settings; if the device is disabled,
                                            // _SRS enables the device at the specified resources. 
             {
-                // arg is IRQ Descriptor
+                // Arg0 is IRQ Descriptor
 
-                Store(0 /*link id*/, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x01, Local0)
-
-                If (LEqual(Local0, 0x00)) { // no error
-                    CreateWordField(Arg0, 0x01, IRQM)
-                    FindSetRightBit(IRQM, Local1)
-                    Decrement(Local1)
-                    Store(Local1, ^^HOST.IRQN)
-                }
+                SRS(0, Arg0)
             }
         }
 
@@ -518,57 +573,22 @@ DefinitionBlock("DSDT.aml",  // AML file name
 
             Method(_STA, 0, NotSerialized)
             {
-                Store(1, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x03, Local0)
-
-                If (LEqual(Local0, 0x02)) {
-                    Return (0x0b)
-                } Else {
-                    Return (0x09)
-                }
+                Return (STA(1))
             }
 
             Method(_DIS, 0, NotSerialized)
             {
-                Store(1, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x03, Local1)
-
-                If (LEqual(Local1, 0x02)) {
-                    Store(0, ^^HOST.DISA)
-                }
+                DIS(1)
             }
 
             Method(_CRS, 0, NotSerialized)
             {
-                Store(ILRT, Local0)
-                CreateWordField(Local0, 0x01, MASK)
-                Store(0, MASK)
-
-                Store(1, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local1)
-                And(Local1, 0x01, Local1)
-
-                If (LEqual(Local1, 0x00)) {
-                    ShiftLeft(0x01, ^^HOST.IRQN, MASK)
-                }
-
-                Return (Local0)                
+                Return (CRS(1))
             }
 
             Method(_SRS, 1, NotSerialized)
             {
-                Store(1, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x01, Local0)
-
-                If (LEqual(Local0, 0x00)) {
-                    CreateWordField(Arg0, 0x01, IRQM)
-                    FindSetRightBit(IRQM, Local1)
-                    Decrement(Local1)
-                    Store(Local1, ^^HOST.IRQN)
-                }
+                SRS(1, Arg0)
             }
         }
 
@@ -584,57 +604,22 @@ DefinitionBlock("DSDT.aml",  // AML file name
 
             Method(_STA, 0, NotSerialized)
             {
-                Store(2, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x03, Local0)
-
-                If (LEqual(Local0, 0x02)) {
-                    return (0x0b)
-                } Else {
-                    Return (0x09)
-                }
+                Return (STA(2))
             }
 
             Method(_DIS, 0, NotSerialized)
             {
-                Store(2, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x03, Local1)
-
-                If (LEqual(Local1, 0x02)) {
-                    Store(0, ^^HOST.DISA)
-                }
+                DIS(2)
             }
 
             Method(_CRS, 0, NotSerialized)
             {
-                Store(ILRT, Local0)
-                CreateWordField(Local0, 0x01, MASK)
-                Store(0, MASK)
-
-                Store(2, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local1)
-                And(Local1, 0x01, Local1)
-
-                If (LEqual(Local1, 0x00)) {
-                    ShiftLeft(0x01, ^^HOST.IRQN, MASK)
-                }
-
-                Return (Local0)                
+                Return (CRS(2))
             }
 
             Method(_SRS, 1, NotSerialized)
             {
-                Store(2, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x01, Local0)
-
-                if (LEqual(Local0, 0x00)) {
-                    CreateWordField(Arg0, 0x01, IRQM)
-                    FindSetRightBit(IRQM, Local1)
-                    Decrement(Local1)
-                    Store(Local1, ^^HOST.IRQN)
-                }
+                SRS(2, Arg0)
             }
         }
 
@@ -650,60 +635,148 @@ DefinitionBlock("DSDT.aml",  // AML file name
 
             Method(_STA, 0, NotSerialized)
             {
-                Store(3, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x03, Local0)
-
-                If (LEqual(Local0, 0x02)) {
-                    return (0x0b)
-                } Else {
-                    Return (0x09)
-                }
+                Return (STA(3))
             }
 
             Method(_DIS, 0, NotSerialized)
             {
-                Store(3, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x03, Local1)
-
-                If (LEqual(Local1, 0x02)) {
-                    Store(0, ^^HOST.DISA)
-                }
+                DIS(3)
             }
 
             Method(_CRS, 0, NotSerialized)
             {
-                Store(ILRT, Local0)
-                CreateWordField(Local0, 0x01, MASK)
-                Store(0, MASK)
-
-                Store(3 , ^^HOST.LINK)
-                Store(^^HOST.STAT, Local1)
-                And(Local1, 0x01, Local1)
-
-                If (LEqual(Local1, 0x00)) {
-                    ShiftLeft(0x01, ^^HOST.IRQN, MASK)
-                }
-
-                Return (Local0)                
+                Return (CRS(3))
             }
 
-            Method(_SRS, 1, NotSerialized) 
+            Method(_SRS, 1, NotSerialized)
             {
-                Store(3, ^^HOST.LINK)
-                Store(^^HOST.STAT, Local0)
-                And(Local0, 0x01, Local0)
-
-                if (LEqual(Local0, 0x00)) {
-                    CreateWordField(Arg0, 0x01, IRQM)
-                    FindSetRightBit(IRQM, Local1)
-                    Decrement(Local1)
-                    Store(Local1, ^^HOST.IRQN)
-                }
+                SRS(3, Arg0)
             }
         }
 
+        Device(IL04)
+        {
+            Name(_HID, EISAID("PNP0C0F"))
+            Name(_UID, 4)
+
+            Method(_PRS, 0, NotSerialized)
+            {
+                Return (ILRT)
+            }
+
+            Method(_STA, 0, NotSerialized)
+            {
+                Return (STA(4))
+            }
+
+            Method(_DIS, 0, NotSerialized)
+            {
+                DIS(4)
+            }
+
+            Method(_CRS, 0, NotSerialized)
+            {
+                Return (CRS(4))
+            }
+
+            Method(_SRS, 1, NotSerialized)
+            {
+                SRS(4, Arg0)
+            }
+        }
+
+        Device(IL05)
+        {
+            Name(_HID, EISAID("PNP0C0F"))
+            Name(_UID, 5)
+
+            Method(_PRS, 0, NotSerialized)
+            {
+                Return (ILRT)
+            }
+
+            Method(_STA, 0, NotSerialized)
+            {
+                Return (STA(5))
+            }
+
+            Method(_DIS, 0, NotSerialized)
+            {
+                DIS(5)
+            }
+
+            Method(_CRS, 0, NotSerialized)
+            {
+                Return (CRS(5))
+            }
+
+            Method(_SRS, 1, NotSerialized)
+            {
+                SRS(5, Arg0)
+            }
+        }
+
+        Device(IL06)
+        {
+            Name(_HID, EISAID("PNP0C0F"))
+            Name(_UID, 6)
+
+            Method(_PRS, 0, NotSerialized)
+            {
+                Return (ILRT)
+            }
+
+            Method(_STA, 0, NotSerialized)
+            {
+                Return (STA(6))
+            }
+
+            Method(_DIS, 0, NotSerialized)
+            {
+                DIS(6)
+            }
+
+            Method(_CRS, 0, NotSerialized)
+            {
+                Return (CRS(6))
+            }
+
+            Method(_SRS, 1, NotSerialized)
+            {
+                SRS(6, Arg0)
+            }
+        }
+
+        Device(IL07)
+        {
+            Name(_HID, EISAID("PNP0C0F"))
+            Name(_UID, 7)
+
+            Method(_PRS, 0, NotSerialized)
+            {
+                Return (ILRT)
+            }
+
+            Method(_STA, 0, NotSerialized)
+            {
+                Return (STA(7))
+            }
+
+            Method(_DIS, 0, NotSerialized)
+            {
+                DIS(7)
+            }
+
+            Method(_CRS, 0, NotSerialized)
+            {
+                Return (CRS(7))
+            }
+
+            Method(_SRS, 1, NotSerialized)
+            {
+                SRS(7, Arg0)
+            }
+        }
     }
 
     Method(StrN, 3, NotSerialized)
