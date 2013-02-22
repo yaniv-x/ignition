@@ -806,7 +806,7 @@ static void pci_activation()
 
 static void pci_init_links()
 {
-    uint32_t irq_mask = NOX_PCI_IRQ_EXCLUSIVE_MASK & ~(1 << PM_IRQ_LINE);
+    uint32_t irq_mask = NOX_PCI_IRQ_EXCLUSIVE_MASK;
     uint8_t irq = 31;
     uint i;
 
