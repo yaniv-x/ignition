@@ -61,6 +61,13 @@ typedef _Packed struct RSDT { // root system description table
 } RSDT;
 
 
+typedef _Packed struct XSDT { // 64-bit root system description table
+    DescriptionHeader header;
+    uint64_t fadt_address;
+    uint64_t madt_address;
+} XSDT;
+
+
 typedef _Packed struct FADT { // fixed ACPI description table
     DescriptionHeader header;
     uint32_t facs_address;
@@ -278,7 +285,7 @@ static MADT* init_multiple_apic_descriptor_table()
     return madt;
 }
 
-static void init_root_sys_descriptor_table(RSDT* rsdt)
+static void init_root_sys_descriptor_table(RSDT* rsdt, XSDT* xsdt)
 {
     FADT* fadt = (FADT*)zalloc(sizeof(*fadt));
 
@@ -292,6 +299,17 @@ static void init_root_sys_descriptor_table(RSDT* rsdt)
     rsdt->fadt_address = (uint32_t)fadt;
     rsdt->madt_address = (uint32_t)init_multiple_apic_descriptor_table();
     rsdt->header.checksum = checksum8(rsdt, sizeof(*rsdt));
+
+    mem_reset(xsdt, sizeof(*xsdt));
+    xsdt->header.signature = FOUR_CHARS('XSDT');
+    xsdt->header.length = sizeof(*xsdt);
+    xsdt->header.revision = 1;
+    mem_copy(xsdt->header.oem_id, OEMID, sizeof(xsdt->header.oem_id));
+    mem_copy(xsdt->header.oem_table_id, MODEL_ID, sizeof(xsdt->header.oem_table_id));
+    xsdt->header.oem_revision = 1;
+    xsdt->fadt_address = rsdt->fadt_address;
+    xsdt->madt_address = rsdt->madt_address;
+    xsdt->header.checksum = checksum8(xsdt, sizeof(*xsdt));
 
     init_fix_acpi_descriptor_table(fadt);
 }
@@ -346,6 +364,7 @@ void init_acpi()
 {
     RSDP* rsdp = &get_ebda()->rsdp;
     RSDT* rsdt = (RSDT*)zalloc(sizeof(*rsdt));
+    XSDT* xsdt = (XSDT*)zalloc(sizeof(*xsdt));
 
     ASSERT(((uint32_t)rsdp & 0x0f) == 0); // must be allign on 16 byte
     ASSERT((uint8_t*)(rsdp + 1) <= (uint8_t*)get_ebda() + KB); // must be in the first KB of EDBA
@@ -357,11 +376,12 @@ void init_acpi()
     mem_copy(rsdp->oem_str, OEMID, sizeof(rsdp->oem_str));
     rsdp->revision = 2;
     rsdp->rsdt_address = (uint32_t)rsdt;
+    rsdp->xsdt_address = (uint64_t)xsdt;
     rsdp->length = sizeof(*rsdp);
     rsdp->checksum = checksum8(rsdp, OFFSET_OF(RSDP, length));
     rsdp->ext_checksum = checksum8(rsdp, sizeof(*rsdp));
 
-    init_root_sys_descriptor_table(rsdt);
+    init_root_sys_descriptor_table(rsdt, xsdt);
 
     // workaround for Haiku r1alpha4
     mem_copy(&__RSDP, rsdp, sizeof(__RSDP));
