@@ -134,7 +134,7 @@ entry:
 global _hard_interrup_%1
 _hard_interrup_%1:
     push ds
-    push ax
+    push eax
 
     xor ax, ax
     mov ds, ax
@@ -144,7 +144,7 @@ _hard_interrup_%1:
     mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SS]
     mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SP]
 
-    pusha
+    pushad
     push es
     push fs
     push gs
@@ -161,7 +161,7 @@ _hard_interrup_%1:
     pop gs
     pop fs
     pop es
-    popa
+    popad
 
     xor ax, ax
     mov ds, ax
@@ -169,7 +169,7 @@ _hard_interrup_%1:
     mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS]
     mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP]
 
-    pop ax
+    pop eax
     pop ds
 
     iret
@@ -201,7 +201,7 @@ _%1_interrupt_handler:
     ; for now disable stack swap (windows loader assume the stack will not be
     ; change)
 
-    ;push ax
+    ;push eax
 
     ;xor ax, ax
     ;mov ds, ax
@@ -211,7 +211,7 @@ _%1_interrupt_handler:
     ;mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SS]  BUG: need to be relative
     ;mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_HARD_INT_SP]
 
-    pusha
+    pushad
     push es
     push fs
     push gs
@@ -226,7 +226,7 @@ _%1_interrupt_handler:
     pop gs
     pop fs
     pop es
-    popa
+    popad
 
     ;xor ax, ax
     ;mov ds, ax
@@ -234,7 +234,7 @@ _%1_interrupt_handler:
     ;mov ss, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SS]
     ;mov sp, [EBDA_PRIVATE_START + PRIVATE_OFFSET_USER_SP]
 
-    ;pop ax
+    ;pop eax
     pop ds
 
     iret
