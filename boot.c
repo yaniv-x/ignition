@@ -46,10 +46,16 @@ enum  {
 
 void on_int19()
 {
-    uint32_t ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
-    uint8_t _far * boot_order = FAR_POINTER(uint8_t, ebda_seg, OFFSET_OF_PRIVATE(boot_order));
-    BootOption __far * options = FAR_POINTER(BootOption, ebda_seg, OFFSET_OF_PRIVATE(boot_options));
+    uint32_t ebda_seg;
+    uint8_t _far * boot_order;
+    BootOption __far * options;
     uint i;
+
+    TRACE_IN();
+
+    ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
+    boot_order = FAR_POINTER(uint8_t, ebda_seg, OFFSET_OF_PRIVATE(boot_order));
+    options = FAR_POINTER(BootOption, ebda_seg, OFFSET_OF_PRIVATE(boot_options));
 
     ata_stop_emulation();
 

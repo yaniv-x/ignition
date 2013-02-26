@@ -1352,6 +1352,8 @@ static void edd_write_sectors(UserRegs __far * context)
 
 void on_int13(UserRegs __far * context)
 {
+    TRACE_IN();
+
     //todo: call next handler in case of device not found condition
     switch (AH(context)) {
     case INT13_FUNC_EDD_SEEK:
@@ -1641,6 +1643,8 @@ void on_int13(UserRegs __far * context)
         D_MESSAGE("not supported 0x%lx", context->eax);
         int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
     }
+
+    TRACE_OUT();
 }
 
 
@@ -1766,6 +1770,8 @@ static uint emulate_read(uint8_t dev_id, uint32_t offset, uint32_t lba, uint cou
 
 uint on_int13_hd_emulate(UserRegs __far * context)
 {
+    TRACE_IN();
+
     switch (AH(context)) {
     case INT13_FUNC_READ_SECTORS: {
         EmulatedDev __far * emulated = get_emulated();
@@ -1930,12 +1936,16 @@ uint on_int13_hd_emulate(UserRegs __far * context)
         int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
     }
 
+    TRACE_OUT();
+
     return INT13_HANDLED;
 
 no_dev_emulate:
     if ((DL(context) & 0x80) && (DL(context) & ~0x80) < MAX_HD) {
+        TRACE_OUT();
         return INT13_DEC_AND_NEXT;
     } else {
+        TRACE_OUT();
         return INT13_CALL_NEXT;
     }
 }
@@ -1943,6 +1953,8 @@ no_dev_emulate:
 
 uint on_int13_fd_emulate(UserRegs __far * context)
 {
+    TRACE_IN();
+
     switch (AH(context)) {
     case INT13_FUNC_READ_SECTORS: {
         EmulatedDev __far * emulated = get_emulated();
@@ -2109,12 +2121,16 @@ uint on_int13_fd_emulate(UserRegs __far * context)
         int13_error(context, HD_ERR_BAD_COMMAND_OR_PARAM);
     }
 
+    TRACE_OUT();
+
     return INT13_HANDLED;
 
 no_dev_emulate:
     if (DL(context) & 0x80) {
+        TRACE_OUT();
         return INT13_CALL_NEXT;
     } else {
+        TRACE_OUT();
         return INT13_DEC_AND_NEXT;
     }
 }

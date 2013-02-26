@@ -869,6 +869,8 @@ void on_keyboard_interrupt()
 {
     uint8_t val;
 
+    TRACE_IN();
+
     restore_ds();
     val = inb(IO_PORT_KBD_STATUS);
 
@@ -904,6 +906,8 @@ void on_keyboard_interrupt()
     }
 
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | PIC1_KEYBOARD_PIN);
+
+    TRACE_OUT();
 }
 
 
@@ -1043,6 +1047,8 @@ void on_mouse_interrupt()
 {
     uint8_t val;
 
+    TRACE_IN();
+
     val = inb(IO_PORT_KBD_STATUS);
 
     if ((val & KBDCTRL_STATUS_DATA_READY_MASK)) {
@@ -1074,6 +1080,8 @@ void on_mouse_interrupt()
 
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | PIC1_SLAVE_PIN);
     outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | PIC2_MOUSE_PIN);
+
+    TRACE_OUT();
 }
 
 
@@ -1183,6 +1191,8 @@ static void kbd_set_repeat(uint8_t repeat, uint8_t delay)
 
 void on_int16(UserRegs __far * context)
 {
+    TRACE_IN();
+
     switch (AH(context)) {
     case INT16_FUNC_READ_KEY:
     case INT16_FUNC_READ_KEY_EXT: {
@@ -1298,6 +1308,8 @@ void on_int16(UserRegs __far * context)
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
     }
+
+    TRACE_OUT();
 }
 
 

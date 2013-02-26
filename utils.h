@@ -98,6 +98,25 @@
 
 #define D_MESSAGE(format, ...) platform_printf(__FUNCTION__ ": " format, ## __VA_ARGS__)
 
+#ifdef SHOW_TRACE
+#define TRACE(verb) {                                       \
+    uint32_t flags = get_eflags();                          \
+    uint16_t seg;                                           \
+                                                            \
+    CLI();                                                  \
+    seg = get_ds();                                         \
+    restore_ds();                                           \
+    platform_printf("TRACE "#verb": %s", __FUNCTION__);     \
+    set_ds(seg);                                            \
+    put_eflags(flags);                                      \
+}
+#else
+#define TRACE(verb)
+#endif
+
+#define TRACE_IN() TRACE(IN)
+#define TRACE_OUT() TRACE(OUT)
+
 uint32_t get_eflags();
 void put_eflags(uint32_t flags);
 void freeze();

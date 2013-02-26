@@ -319,11 +319,14 @@ void set_int_vec(uint8_t index, uint16_t seg, uint16_t offset)
 
 void on_hard_interrupt(uint16_t line)
 {
-    uint16_t seg = bda_read_word(BDA_OFFSET_EBDA);
+    uint16_t seg;
     IntHandler* handler;
     EBDA *ebda;
     uint i;
 
+    TRACE_IN();
+
+    seg = bda_read_word(BDA_OFFSET_EBDA);
     set_ds(seg);
     ebda = 0;
     handler = ebda->private.int_handlers[line];
@@ -349,6 +352,8 @@ void on_hard_interrupt(uint16_t line)
     }
 
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | line);
+
+    TRACE_OUT();
 }
 
 
@@ -471,6 +476,8 @@ void on_pit_interrupt()
 {
     uint32_t* counter;
 
+    TRACE_IN();
+
     set_ds(BDA_SEG);
 
     *(uint8_t*)BDA_OFFSET_LAST_IRQ = ~0;
@@ -490,6 +497,8 @@ void on_pit_interrupt()
     INT(0x1c);
 
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | 0);
+
+    TRACE_OUT();
 }
 
 
@@ -765,6 +774,8 @@ static uint32_t descriptor_to_address(uint8_t __far * descriptor)
 
 void on_int15(UserRegs __far * context)
 {
+    TRACE_IN();
+
     switch (AH(context)) {
     case INT15_FUNC_KBD_INTERCEPT:
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
@@ -777,6 +788,7 @@ void on_int15(UserRegs __far * context)
             if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
                 AX(context) = 0;
                 context->flags |= (1 << CPU_FLAGS_CF_BIT);
+                TRACE_OUT();
                 return;
             }
 
@@ -811,6 +823,7 @@ void on_int15(UserRegs __far * context)
         if (bda_read_byte(BDA_OFFSET_WAIT_FLAGS) & BDA_WAIT_IN_USE) {
             AX(context) = 0;
             context->flags |= (1 << CPU_FLAGS_CF_BIT);
+            TRACE_OUT();
             return;
         }
 
@@ -968,29 +981,43 @@ void on_int15(UserRegs __far * context)
         AH(context) = 0x86;
     }
 
+    TRACE_OUT();
+
     return;
 
 not_supported:
     D_MESSAGE("not supported 0x%lx", context->eax);
     context->flags |= (1 << CPU_FLAGS_CF_BIT);
     AH(context) = 0x86;
+
+    TRACE_OUT();
 }
 
 
 void on_int11(UserRegs __far * context)
 {
+    TRACE_IN();
+
     AX(context) = bda_read_word(BDA_OFFSET_EQUIPMENT);
+
+    TRACE_OUT();
 }
 
 
 void on_int12(UserRegs __far * context)
 {
+    TRACE_IN();
+
     AX(context) = bda_read_word(BDA_OFFSET_MAIN_MEM_SIZE);
+
+    TRACE_OUT();
 }
 
 
 void on_int1a(UserRegs __far * context)
 {
+    TRACE_IN();
+
     switch (AH(context)) {
     case INT1A_FUNC_GET_SYS_TIME: {
         uint32_t ticks = bda_read_dword(BDA_OFFSET_TICKS);
@@ -1104,15 +1131,22 @@ void on_int1a(UserRegs __far * context)
         context->flags |= (1 << CPU_FLAGS_CF_BIT);
         AH(context) = 0x86;
     }
+
+    TRACE_OUT();
 }
 
 
 void on_unhandled_int(UserRegs __far * context)
 {
-    uint8_t opcode = read_byte(context->cs, context->ip - 2);
+    uint8_t opcode;
+
+    TRACE_IN();
+
+    opcode = read_byte(context->cs, context->ip - 2);
 
     if (opcode == 0xcd) {
         D_MESSAGE("int 0x%x, eax 0x%lx", read_byte(context->cs, context->ip - 1), context->eax);
+        TRACE_OUT();
         return;
     }
 
@@ -1128,6 +1162,8 @@ void on_unhandled_int(UserRegs __far * context)
     default:
         D_MESSAGE("unknown");
     }
+
+    TRACE_OUT();
 }
 
 
@@ -1135,6 +1171,8 @@ void on_rtc_interrupt()
 {
     uint16_t flags;
     uint8_t regc;
+
+    TRACE_IN();
 
     regc = ebda_read_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c));
     ebda_write_byte(OFFSET_OF(EBDA, private) + OFFSET_OF(EBDAPrivate, rtc_reg_c), 0);
@@ -1192,6 +1230,8 @@ void on_rtc_interrupt()
 
     outb(IO_PORT_PIC1, PIC_SPECIFIC_EOI_MASK | 2);
     outb(IO_PORT_PIC2, PIC_SPECIFIC_EOI_MASK | 0);
+
+    TRACE_OUT();
 }
 
 
