@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2013 Yaniv Kamay,
+    Copyright (c) 2013-2014 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -1133,6 +1133,8 @@ static void setup_mttr()
     }
 
     if (globals->above_1m_pages) {
+        // When the fixed-range MTRRs are enabled, they take priority over the variable-range
+        // MTRRs when overlaps in ranges occur.
         uint32_t bytes = (globals->above_1m_pages << PAGE_SHIFT) + MB;
         uint64_t address = 0;
         int msb;
