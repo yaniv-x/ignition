@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2013 Yaniv Kamay,
+    Copyright (c) 2013-2014 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -58,7 +58,7 @@ static const ScanTrans scan_trans[KBD_MAX_KEY_SCAN + 1] = { // from "The Undocum
     {0x0938, 0x092a, 0x0000, 0x7f00}, /* 8 */
     {0x0a39, 0x0a28, 0x0000, 0x8000}, /* 9 */
     {0x0b30, 0x0b29, 0x0000, 0x8100}, /* 0 */
-    {0x0c30, 0x0c5f, 0x0c1f, 0x8200}, /* - */
+    {0x0c2d, 0x0c5f, 0x0c1f, 0x8200}, /* - */
     {0x0d3d, 0x0d2b, 0x0000, 0x8300}, /* = */
     {0x0e08, 0x0e08, 0x0e7f, /**/0x0e00}, /* BACKSPACE */
     {0x0f09, 0x0f00, /**/0x9400, /**/0xa500}, /* TAB */
