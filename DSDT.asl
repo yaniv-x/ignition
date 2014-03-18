@@ -116,7 +116,7 @@ DefinitionBlock("DSDT.aml",  // AML file name
                     ,, PH64, AddressRangeMemory, TypeStatic)   
             })
 
-            Method(_CRS, 0, NotSerialized)
+            Method(_CRS, 0, Serialized)
             {
                 OperationRegion(PCIH, SystemMemory, ^HOST.ROOT, 32)
 
@@ -785,16 +785,11 @@ DefinitionBlock("DSDT.aml",  // AML file name
             Return (0)
         }
 
-        Name (STR0, Buffer (Add(SizeOf(Arg0), 1)) {})
-        Name (STR1, Buffer (Add(SizeOf(Arg1), 1)) {})
-        Store (Arg0, STR0)
-        Store (Arg1, STR1)
-
         Store(0, Local0)
 
         While (LLess(Local0, Arg2)) {
-            Store(DerefOf(Index(STR0, Local0)), Local1)
-            Store(DerefOf(Index(STR1, Local0)), Local2)
+            Store(DerefOf(Index(Arg0, Local0)), Local1)
+            Store(DerefOf(Index(Arg1, Local0)), Local2)
 
             If (LNotEqual(Local1, Local2)) {
                 Return (0)
