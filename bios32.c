@@ -238,10 +238,6 @@ static void detect_cpu()
     eax = 0;
     cpuid(&eax, &ebx, &ecx, &edx);
 
-    if (ebx != FOUR_CHARS('Auth') || edx != FOUR_CHARS('enti') || ecx != FOUR_CHARS('cAMD')) {
-        post_and_halt(POST_CODE_DETECT_CPU_FAILED);
-    }
-
     eax = 0x80000000;
     cpuid(&eax, &ebx, &ecx, &edx);
 
