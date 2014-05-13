@@ -445,7 +445,7 @@ ___call32:
     mov [EBDA_PRIVATE_START + PRIVATE_OFFSET_REAL_MODE_SP], sp
     mov ds, dx
 
-.one_way
+.one_way:
     mov bp, sp
     sub sp, 6
     mov al, RTC_NMI_MASK

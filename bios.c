@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2013 Yaniv Kamay,
+    Copyright (c) 2013-2014 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -1465,6 +1465,8 @@ void init()
     STI();
 
     post(POST_CODE_TMP);
+
+    ui();
 
     boot();
 

@@ -49,7 +49,7 @@ _ap_entry:
 
 .spin_lock:
     mov ax, 1
-    lock xchg  ax, [EBDA_PRIVATE_START + PRIVATE_OFFSET_AP_LOCK]
+    lock xchg [EBDA_PRIVATE_START + PRIVATE_OFFSET_AP_LOCK], ax
     cmp ax, 0
     jne .spin_lock
 

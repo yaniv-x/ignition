@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2013 Yaniv Kamay,
+    Copyright (c) 2013-2014 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -54,6 +54,8 @@
 #define IO_PORT_SYSCTRL 0x92
 #define IO_PORT_PIC2 0xa0
 #define IO_PORT_POST_CODE 0x300
+#define IO_PORT_VGA_PALETTE_WRITE_INDEX 0x3c8
+#define IO_PORT_VGA_PALETTE_DATA 0x3c9
 #define IO_PORT_ELCR1 0x4d0
 #define IO_PORT_ELCR2 0x4d1
 #define IO_PORT_PCI_ADDRESS 0xcf8
@@ -167,6 +169,7 @@
 #define KBD_CMD_REPEAT_RATE 0xf3
 #define KBD_CMD_RESET 0xff
 
+#define KBD_SCAN_ESCAPE 0x01
 #define KBD_SCAN_L_CTRL 0x1d
 #define KBD_SCAN_L_SHIFT 0x2a
 #define KBD_SCAN_R_SHIFT 0x36
@@ -174,6 +177,8 @@
 #define KBD_SCAN_CAPS_LOCK 0x3a
 #define KBD_SCAN_NUM_LOCK 0x45
 #define KBD_SCAN_SCROLL_LOCK 0x46
+#define KBD_SCAN_PAD_UP 0x48
+#define KBD_SCAN_PAD_DOWN 0x50
 #define KBD_SCAN_INSERT 0x52
 #define KBD_SCAN_DEL 0x53
 #define KBD_SCAN_SYS_REQ 0x54

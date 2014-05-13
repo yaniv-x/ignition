@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2013 Yaniv Kamay,
+    Copyright (c) 2013-2014 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -36,6 +36,7 @@ void int19_handler();
 void far_call_no_return();
 
 #define BOOT_OPT_FLAG_DONE (1 << 0)
+#define BOOT_OPT_FLAG_SKIP (1 << 1)
 
 enum  {
     BOOT_OPT_TYPE_INVALID,
@@ -68,7 +69,7 @@ void on_int19()
             break;
         }
 
-        if (now->flags & BOOT_OPT_FLAG_DONE) {
+        if (now->flags & (BOOT_OPT_FLAG_DONE | BOOT_OPT_FLAG_SKIP)) {
             continue;
         }
 
@@ -97,7 +98,11 @@ void on_int19()
     }
 
     D_MESSAGE("no valid boot option found");
-    freeze();
+    term_printf("no valid boot option found\n\r");
+
+    for (;;) {
+        delay(1000000UL);
+    }
 }
 
 
@@ -123,9 +128,8 @@ static void hd_boot()
             freeze();
         }
 
-        term_printf("boot...");
-
         if (read_word(0, 0x7c00 + 510) == 0xaa55) {
+            term_printf("boot...\n\r");
             __asm {
                 xor ax, ax
                 xor bx, bx
@@ -445,6 +449,61 @@ void boot_add_cd(ATADevice __far * device)
 
     D_MESSAGE("out of boot option slots");
     bios_warn(BIOS_WARN_BOOT_OUT_OF_SLOTS);
+}
+
+
+char __far *boot_get_option(uint index)
+{
+    uint32_t ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
+    BootOption __far * options = FAR_POINTER(BootOption, ebda_seg, OFFSET_OF_PRIVATE(boot_options));
+    uint i;
+    uint options_count = 0;
+
+    for ( i = 0; i < MAX_BOOT_OPTIONS; i++) {
+        if (options[i].type != BOOT_OPT_TYPE_INVALID) {
+            if (index-- == 0) {
+                return options[i].description;
+            }
+        }
+    }
+
+    return NULL;
+}
+
+
+void boot_set_boot_option(uint index)
+{
+    uint32_t ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
+    BootOption __far * options = FAR_POINTER(BootOption, ebda_seg, OFFSET_OF_PRIVATE(boot_options));
+    uint i;
+
+    for (i = 0; i < MAX_BOOT_OPTIONS; i++) {
+        if (options[i].type != BOOT_OPT_TYPE_INVALID) {
+            if (index == 0) {
+                options[i].flags &= ~BOOT_OPT_FLAG_SKIP;
+            } else {
+                options[i].flags |= BOOT_OPT_FLAG_SKIP;
+            }
+            index -= 1;
+        }
+    }
+}
+
+
+bool_t boot_multiple_options()
+{
+    uint32_t ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
+    BootOption __far * options = FAR_POINTER(BootOption, ebda_seg, OFFSET_OF_PRIVATE(boot_options));
+    uint i;
+    uint options_count = 0;
+
+    for ( i = 0; i < MAX_BOOT_OPTIONS; i++) {
+        if (options[i].type != BOOT_OPT_TYPE_INVALID) {
+            ++options_count;
+        }
+    }
+
+    return options_count > 1;
 }
 
 
