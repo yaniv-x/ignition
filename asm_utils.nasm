@@ -1,5 +1,5 @@
 %if 0
-    Copyright (c) 2013 Yaniv Kamay,
+    Copyright (c) 2013-2014 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -33,16 +33,47 @@ group DGROUP _TEXT
 extern _freeze
 
 
-; void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device)
+; void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device,
+;                    uint32_t far * eax, uint32_t far * ecx, uint32_t far * edx)
 global _call_rom_init
 _call_rom_init:
     push bp
     mov bp, sp
     mov ah, [bp + 8]
     mov al, [bp + 10]
-    PUSH_ALL
+
+    push bx
+    pushf
+    push di
+    push si
+    push ds
+    push es
+    push fs
+    push gs
+
+    push bp
     call far [bp + 4]
-    POP_ALL
+    pop bp
+
+    mov bx, [bp + 12]
+    mov ds, [bp + 14]
+    mov [bx], eax
+    mov bx, [bp + 16]
+    mov ds, [bp + 18]
+    mov [bx], ecx
+    mov bx, [bp + 20]
+    mov ds, [bp + 22]
+    mov [bx], edx
+
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    pop si
+    pop di
+    popf
+    pop bx
+
     pop bp
     ret
 

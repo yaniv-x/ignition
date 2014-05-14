@@ -36,7 +36,7 @@
 #define BACKGROUND_COLOR 0xc
 #define BLACK 0
 #define VGA_FADE_DELAY 300
-#define FADE_OUT_DELAY_MSEC 50
+#define FADE_OUT_DELAY_MSEC 100
 #define FADE_IN_DELAY_MSEC 150
 #define MESSAGE_LINE 23
 #define MARGIN 2
@@ -61,7 +61,6 @@ typedef _Packed struct Cell {
 } Cell;
 
 
-const char *vga_str = "Plex86/Bochs VGABios (Modifaied)";
 const char *bios_str = "Ignition v1.0";
 const char *enter_boot = "Press <ESC> to enter boot menu";
 
@@ -360,14 +359,26 @@ static void boot_menu_opportunity()
 
 void ui()
 {
+    uint8_t num_strings = ebda_read_byte(OFFSET_OF_PRIVATE(num_display_strings));
+    uint32_t ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
+    address_t __far * strings = FAR_POINTER(address_t, ebda_seg,
+                                            OFFSET_OF_PRIVATE(display_strings));
+    uint i;
+
     set_video_mode(3, FALSE);
     hide_cursor();
     init_gray_palet();
     fill_area(0, 0, NUM_ROWS, NUM_COLUMNS, BACKGROUND_COLOR);
-    draw_string(vga_str, MESSAGE_LINE, MARGIN, BLACK, ~0);
-    delay(VGA_FADE_DELAY);
-    fade(MESSAGE_LINE, MARGIN, MESSAGE_LINE + 1, MARGIN + string_length(vga_str), BACKGROUND_COLOR,
-         FADE_OUT_DELAY_MSEC);
+
+    for (i = 0; i < num_strings; i++) {
+        char __far * str = (char __far *)strings[i];
+        draw_string(str, MESSAGE_LINE, MARGIN, BACKGROUND_COLOR, ~0);
+        fade(MESSAGE_LINE, MARGIN, MESSAGE_LINE + 1, MARGIN + string_length(str), BLACK,
+             FADE_OUT_DELAY_MSEC);
+        fade(MESSAGE_LINE, MARGIN, MESSAGE_LINE + 1, MARGIN + string_length(str), BACKGROUND_COLOR,
+             FADE_OUT_DELAY_MSEC);
+    }
+
     draw_string(bios_str, MESSAGE_LINE, MARGIN, BACKGROUND_COLOR, ~0);
     fade(MESSAGE_LINE, MARGIN, MESSAGE_LINE + 1, MARGIN + string_length(bios_str),
          BLACK, FADE_IN_DELAY_MSEC);

@@ -33,7 +33,8 @@
 #include "pci.h"
 #include "bios.h"
 
-void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device);
+void call_rom_init(uint16_t offset, uint16_t seg, uint8_t bus, uint8_t device,
+                   uint32_t __far * eax, uint32_t __far * ecx, uint32_t __far * edx);
 void hard_interrup_0();
 void hard_interrup_1();
 void hard_interrup_2();
@@ -60,6 +61,13 @@ void unhandled_int_handler();
 void dummy_interrupt();
 void ap_entry();
 void __call32(uint16_t oneway);
+
+
+typedef _Packed struct IgnitExpInfo {
+    uint16_t version;
+    uint8_t display_name[1];
+} IgnitExpInfo;
+
 
 uint16_t set_ds(uint16_t data_seg)
 {
@@ -1310,6 +1318,31 @@ void beep()
 }
 
 
+static void push_expansion_info(uint32_t eax, uint32_t ecx, uint32_t edx)
+{
+    IgnitExpInfo _far * inf = (IgnitExpInfo _far *)edx;
+    uint8_t num_strings = ebda_read_byte(OFFSET_OF_PRIVATE(num_display_strings));
+    uint32_t ebda_seg = bda_read_word(BDA_OFFSET_EBDA);
+    address_t __far * strings = FAR_POINTER(address_t, ebda_seg,
+                                            OFFSET_OF_PRIVATE(display_strings));
+
+    if (eax != FOUR_CHARS('Igni') || ecx != FOUR_CHARS('tInf') || inf->version != 1) {
+        D_MESSAGE("no expansion info");
+        return;
+    }
+
+    D_MESSAGE("expansion info %S", inf->display_name);
+
+    if (num_strings == MAX_DISPLAY_STR) {
+        platform_printf("out of display strings slots");
+        return;
+    }
+
+    strings[num_strings] = (address_t)inf->display_name;
+    ebda_write_byte(OFFSET_OF_PRIVATE(num_display_strings), num_strings + 1);
+}
+
+
 static void int_exp_rom()
 {
     uint32_t start;
@@ -1318,6 +1351,7 @@ static void int_exp_rom()
     uint16_t rom_seg;
     uint8_t size_before;
     uint8_t size_after;
+    uint32_t eax, ecx, edx;
 
     ebda_write_word(OFFSET_OF_PRIVATE(bios_flags),
                     ebda_read_word(OFFSET_OF_PRIVATE(bios_flags)) | BIOS_FLAGS_UNREAL);
@@ -1331,7 +1365,8 @@ static void int_exp_rom()
 
     size_before = read_byte(rom_seg, OFFSET_OF(CodeImageHeader, code_image_size));
 
-    call_rom_init(OFFSET_OF(CodeImageHeader, jump), rom_seg, bus, device);
+    call_rom_init(OFFSET_OF(CodeImageHeader, jump), rom_seg, bus, device, &eax, &ecx, &edx);
+    push_expansion_info(eax, ecx, edx);
 
     size_after = read_byte(rom_seg, OFFSET_OF(CodeImageHeader, code_image_size));
 
@@ -1471,59 +1506,6 @@ void init()
     boot();
 
     bios_error(BIOS_ERROR_UNEXPECTED_IP);
-
-
-    //Octave 6
-    play_note(1046, 250);
-    delay(1000);
-    play_note(1175, 250);
-    delay(1000);
-    play_note(1328, 250);
-    delay(1000);
-    play_note(1397, 250);
-    delay(1000);
-    play_note(1568, 250);
-    delay(1000);
-    play_note(1760, 250);
-    delay(1000);
-    play_note(1975, 250);
-    delay(1000);
-
-    for (;;) {
-        uint8_t scan;
-        uint8_t ascii;
-        char str[100];
-        char ascii_str[2];
-
-        ascii_str[1] = 0;
-
-        __asm {
-            mov ah, INT16_FUNC_READ_KEY
-            int 16h
-            mov scan, ah
-            mov ascii, al
-        }
-
-        ascii_str[0] = ascii;
-
-        format_mem_str(str, sizeof(str), "scan 0x%x ascii 0x%x %S", scan, ascii, ascii_str);
-        platform_debug_string(str);
-    }
-
-    for ( i = 0; i < 10; i++) {
-        delay(2000);
-        platform_debug_string("post delay");
-    }
-
-    for (;;) {
-         __asm {
-            mov ah, INT15_FUNC_WAIT
-            mov cx, 0x98
-            mov dx, 0x9680
-            int 15h
-        }
-        platform_debug_string("post wait");
-    }
 
     restart();
 }

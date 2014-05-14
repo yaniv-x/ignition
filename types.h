@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2013 Yaniv Kamay,
+    Copyright (c) 2013-2014 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -35,6 +35,7 @@
 #define INT_HANDLERS_POOL_SIZE 16
 #define MAX_ATA_DEVICES 8
 #define MAX_BOOT_OPTIONS 8
+#define MAX_DISPLAY_STR 4
 
 
 typedef _Packed struct discriptor_t {
@@ -186,6 +187,8 @@ typedef _Packed struct EBDAPrivate {
     BootOption boot_options[MAX_BOOT_OPTIONS];
     EmulatedDev emulated_dev;
     uint8_t read_buf[2048];
+    uint8_t num_display_strings;
+    address_t display_strings[MAX_DISPLAY_STR];
 } EBDAPrivate;
 
 
