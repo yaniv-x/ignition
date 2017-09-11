@@ -1,5 +1,6 @@
 
 WATCOM_ROOT=~/watcom
+NASM=./nasm_2_12/nasm
 
 LINK=$(WATCOM_ROOT)/binl/wlink
 CC=$(WATCOM_ROOT)/binl/wcc
@@ -50,12 +51,12 @@ AUTO_GEN = defs.inc DSDT.c
 
 %.o : %.nasm
 	@mkdir -p $(DEP_DIR)
-	@nasm -M -MT $@ $< > $(TMP_DEP_FILE)
+	@$(NASM) -M -MT $@ $< > $(TMP_DEP_FILE)
 	@cp $(TMP_DEP_FILE) $(DEP_FILE)
 	@sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' -e '/^$$/ d' -e 's/$$/ :/' \
                                                         < $(TMP_DEP_FILE) >> $(DEP_FILE)
 	@rm $(TMP_DEP_FILE)
-	nasm -f obj -o $@ $<
+	$(NASM) -f obj -o $@ $<
 
 
 .DELETE_ON_ERROR:
@@ -85,7 +86,7 @@ fixup : fixup.c
 	gcc -O0 -g -o fixup fixup.c
 
 jump.bin : jump.nasm
-	nasm -f bin -o $@ $<
+	$(NASM) -f bin -o $@ $<
 
 DSDT.c : DSDT.asl
 	@iasl -tc DSDT.asl
