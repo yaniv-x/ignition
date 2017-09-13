@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2013-2014 Yaniv Kamay,
+    Copyright (c) 2013-2017 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -581,17 +581,17 @@ static void init_platform()
 
     outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_LOCK, 0);
 
-    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_BELOW_1M_USED_PAGES);
-    globals->below_1m_used_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
-
     outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_ABOVE_1M_PAGES);
     globals->above_1m_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
-    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_BELOW_4G_PAGES);
+    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_HIGH_BIOS_PAGES);
     globals->below_4g_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
-    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_BELOW_4G_USED_PAGES);
+    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_HIGH_BIOS_USED_PAGES);
     globals->below_4g_used_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
+
+    outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_BELOW_HIGH_BIOS_PAGES);
+    globals->below_high_bios_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
     outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_ABOVE_4G_PAGES);
     globals->above_4g_pages  = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
@@ -600,9 +600,10 @@ static void init_platform()
     below_4g_sum = ALIGN(below_4g_sum, (MID_RAM_RANGE_ALIGMENT_MB * MB) >> PAGE_SHIFT);
     below_4g_sum += to_power_of_two(globals->below_4g_pages);
 
-    if (globals->below_1m_used_pages > (MB - ((640 + 128) * KB) >> PAGE_SHIFT) ||
-                                    !globals->below_4g_pages ||
-                                    globals->below_4g_used_pages >= globals->below_4g_pages ||
+
+    if (globals->below_4g_pages + globals->below_high_bios_pages >=
+                                           ((4ULL * GB - LOCAL_APIC_ADDRESS) >> PAGE_SHIFT) ||
+        !globals->below_4g_pages || globals->below_4g_used_pages >= globals->below_4g_pages ||
                                     below_4g_sum > 4 * (GB >> PAGE_SHIFT)) {
         bios_error(BIOS_ERROR_INVALID_PLATFORM_ARGS);
     }

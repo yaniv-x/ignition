@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2013-2014 Yaniv Kamay,
+    Copyright (c) 2013-2017 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -140,11 +140,11 @@ typedef _Packed struct EBDAPrivate {
     uint16_t int13_emu_next_offset;
     uint16_t ap_lock;
 
-    uint32_t below_1m_used_pages;
     uint32_t above_1m_pages;
     uint32_t below_4g_pages;
     uint32_t below_4g_used_pages;
     uint32_t above_4g_pages;
+    uint32_t below_high_bios_pages;
     uint32_t pci32_hole_start;
     uint32_t pci32_hole_end;
     uint64_t pci64_hole_start;
