@@ -1160,8 +1160,13 @@ static void setup_mttr()
         freeze();
     }
 
-    size = to_power_of_two(globals->high_bios_used_pages) << PAGE_SHIFT;
-    // high bios type is WB (maybe WP)
+    size = to_power_of_two(globals->high_bios_pages + globals->below_high_bios_pages) << PAGE_SHIFT;
+
+    if (4ULL * GB - size <= LOCAL_APIC_ADDRESS) {
+        D_MESSAGE("below 4g overlaps local APIC");
+    }
+
+    // high bios type is WB. Maybe split into rom + ram (i.e WB and WP)
     set_mttr_var_range(slot++, 6, 4ULL * GB - size, size);
 
     if (globals->above_4g_pages) {
