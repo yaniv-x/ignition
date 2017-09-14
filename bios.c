@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2013-2014 Yaniv Kamay,
+    Copyright (c) 2013-2017 Yaniv Kamay,
     All rights reserved.
 
     Source code is provided for evaluation purposes only. Modification or use in
@@ -646,7 +646,7 @@ enum {
     MEM_MAP_INDEX_ABOVE_1M,
     MEM_MAP_INDEX_IO_APIC,
     MEM_MAP_INDEX_LOCAL_APIC,
-    MEM_MAP_INDEX_BELOW_4G,
+    MEM_MAP_INDEX_HIGH_BIOS,
     MEM_MAP_INDEX_ABOVE_4G,
 };
 
@@ -728,13 +728,13 @@ static bool_t big_mem_get_map(UserRegs __far * context)
         ent->address = LOCAL_APIC_ADDRESS;
         ent->size = 4 * KB;
         ent->type = MEM_TYPE_RESERVED;
-        context->ebx = MEM_MAP_INDEX_BELOW_4G;
+        context->ebx = MEM_MAP_INDEX_HIGH_BIOS;
         context->ecx = sizeof(MemMapEnt);
         break;
-    case MEM_MAP_INDEX_BELOW_4G: {
-        uint32_t below_4g_pages = ebda_read_dword(OFFSET_OF_PRIVATE(below_4g_pages));
-        ent->address = 4ULL * GB - (below_4g_pages * KB * 4);
-        ent->size = below_4g_pages * KB * 4;
+    case MEM_MAP_INDEX_HIGH_BIOS: {
+        uint32_t high_bios_pages = ebda_read_dword(OFFSET_OF_PRIVATE(high_bios_pages));
+        ent->address = 4ULL * GB - (high_bios_pages * KB * 4);
+        ent->size = high_bios_pages * KB * 4;
         ent->type = MEM_TYPE_RESERVED;
         if (ebda_read_dword(OFFSET_OF_PRIVATE(above_4g_pages))) {
             context->ebx = MEM_MAP_INDEX_ABOVE_4G;

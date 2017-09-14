@@ -141,10 +141,10 @@ typedef _Packed struct EBDAPrivate {
     uint16_t ap_lock;
 
     uint32_t above_1m_pages;
-    uint32_t below_4g_pages;
-    uint32_t below_4g_used_pages;
-    uint32_t above_4g_pages;
     uint32_t below_high_bios_pages;
+    uint32_t high_bios_pages;
+    uint32_t high_bios_used_pages;
+    uint32_t above_4g_pages;
     uint32_t pci32_hole_start;
     uint32_t pci32_hole_end;
     uint64_t pci64_hole_start;

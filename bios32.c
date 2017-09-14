@@ -175,7 +175,7 @@ static address_t get_high_mem()
 {
     EBDAPrivate* private = get_ebda_private();
 
-    return (4 * (GB >> PAGE_SHIFT) - private->below_4g_pages) << PAGE_SHIFT;
+    return (4 * (GB >> PAGE_SHIFT) - private->high_bios_pages) << PAGE_SHIFT;
 }
 
 
@@ -585,10 +585,10 @@ static void init_platform()
     globals->above_1m_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
     outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_HIGH_BIOS_PAGES);
-    globals->below_4g_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
+    globals->high_bios_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
     outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_HIGH_BIOS_USED_PAGES);
-    globals->below_4g_used_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
+    globals->high_bios_used_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
 
     outb(PCI_BASE_IO_ADDRESS + PLATFORM_IO_SELECT, PLATFORM_REG_BELOW_HIGH_BIOS_PAGES);
     globals->below_high_bios_pages = ind(PCI_BASE_IO_ADDRESS + PLATFORM_IO_REGISTER);
@@ -598,12 +598,12 @@ static void init_platform()
 
     below_4g_sum = globals->above_1m_pages + (MB >> PAGE_SHIFT);
     below_4g_sum = ALIGN(below_4g_sum, (MID_RAM_RANGE_ALIGMENT_MB * MB) >> PAGE_SHIFT);
-    below_4g_sum += to_power_of_two(globals->below_4g_pages);
+    below_4g_sum += to_power_of_two(globals->high_bios_pages);
 
 
-    if (globals->below_4g_pages + globals->below_high_bios_pages >=
+    if (globals->high_bios_pages + globals->below_high_bios_pages >=
                                            ((4ULL * GB - LOCAL_APIC_ADDRESS) >> PAGE_SHIFT) ||
-        !globals->below_4g_pages || globals->below_4g_used_pages >= globals->below_4g_pages ||
+        !globals->high_bios_pages || globals->high_bios_used_pages >= globals->high_bios_pages ||
                                     below_4g_sum > 4 * (GB >> PAGE_SHIFT)) {
         bios_error(BIOS_ERROR_INVALID_PLATFORM_ARGS);
     }
@@ -627,10 +627,10 @@ static void init_high_mem()
 {
     address_t high_mem = get_high_mem();
     HighMemRoot* root = (HighMemRoot*)high_mem; // DSDT.asl dependency
-    uint32_t pages = globals->below_4g_pages - globals->below_4g_used_pages;
+    uint32_t pages = globals->high_bios_pages - globals->high_bios_used_pages;
     DumbAlloc* allocator = &root->allocator;
 
-    ASSERT(globals->below_4g_pages && globals->below_4g_pages > globals->below_4g_used_pages);
+    ASSERT(globals->high_bios_pages && globals->high_bios_pages > globals->high_bios_used_pages);
 
     root->pci64_hole_start = globals->pci64_hole_start;
     root->pci64_hole_end = 1ULL << globals->address_lines;
@@ -1160,7 +1160,7 @@ static void setup_mttr()
         freeze();
     }
 
-    size = to_power_of_two(globals->below_4g_used_pages) << PAGE_SHIFT;
+    size = to_power_of_two(globals->high_bios_used_pages) << PAGE_SHIFT;
     // high bios type is WB (maybe WP)
     set_mttr_var_range(slot++, 6, 4ULL * GB - size, size);
 
