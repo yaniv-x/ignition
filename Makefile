@@ -1,6 +1,6 @@
 
 WATCOM_ROOT=~/watcom
-NASM=./nasm_2_12/nasm
+NASM=nasm
 
 LINK=$(WATCOM_ROOT)/binl/wlink
 CC=$(WATCOM_ROOT)/binl/wcc
