@@ -91,7 +91,7 @@ jump.bin : jump.nasm
 DSDT.c : DSDT.asl
 	@iasl -tc DSDT.asl
 	@mv DSDT.hex DSDT.c
-	@sed -i -e's/unsigned char AmlCode/const uint8_t dsdt/' DSDT.c
+	@sed -i -e's/unsigned char \(AmlCode\|dsdt_aml_code\)/const uint8_t dsdt/' DSDT.c
 
 clean :
 	rm -f *.o *.bin defs.inc bios32.map bios.map fixup
