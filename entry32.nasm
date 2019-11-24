@@ -24,7 +24,8 @@
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 %endif
 
-segment _TEXT class=CODE USE32 align=1 CPU=686
+cpu 686
+segment _TEXT class=CODE USE32 align=1
 group DGROUP _TEXT
 
 

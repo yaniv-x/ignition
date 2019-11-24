@@ -24,7 +24,8 @@
     IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 %endif
 
-segment ENTRY class=CODE USE16 align=1 CPU=686
+cpu 686
+segment ENTRY class=CODE USE16 align=1
 group DGROUP ENTRY
 
 
